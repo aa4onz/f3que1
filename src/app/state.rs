@@ -63,7 +63,7 @@ impl AppState {
             show_timestamp: true,
             show_latency: true,
             scroll_offset: 0,
-            queue_mode: false,
+            queue_mode: true, // Queue Mode Enabled by default
             queue: Vec::new(),
             last_keystroke_time: None,
             hardware_delay_ms: 45,
