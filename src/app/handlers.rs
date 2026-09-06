@@ -361,11 +361,12 @@ impl crate::app::state::AppState {
                         } else if let Some(num) = parsed_number {
                             // Queue Mode Enabled & Number Detected (+2 generator logic)
                             if self.queue.is_empty() {
-                                self.queue.push(num);
+                                // X sent immediately; X+2 stored in queue
                                 self.queue.push(num + 2);
                                 let _ = tx.send(AppEvent::EnqueueNumberItem(num)).await;
                                 let _ = tx.send(AppEvent::EnqueueNumberItem(num + 2)).await;
                             } else {
+                                // Non-empty: Y+2 pushed to tail
                                 self.queue.push(num + 2);
                                 let _ = tx.send(AppEvent::EnqueueNumberItem(num + 2)).await;
                             }

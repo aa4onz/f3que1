@@ -70,6 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let queue_mode_enabled = Arc::new(RwLock::new(true));
     let hardware_delay_ms = Arc::new(RwLock::new(45u64));
     let self_user_id = Arc::new(RwLock::new(String::new()));
+    let self_username = Arc::new(RwLock::new(String::new()));
 
     // Shared Gateway Write Stream for Typing events
     let gw_write_arc: Arc<Mutex<Option<futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, Message>>>> = Arc::new(Mutex::new(None));
@@ -97,6 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client_ref = Arc::clone(&http_client);
     let gw_writer_ref = Arc::clone(&gw_write_arc);
     let self_id_ref = Arc::clone(&self_user_id);
+    let self_uname_ref = Arc::clone(&self_username);
 
     tokio::spawn(async move {
         let gw_url = "wss://gateway.discord.gg/?v=10&encoding=json";
@@ -168,17 +170,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 if let Some(uid) = data["user"]["id"].as_str() {
                                                     *self_id_ref.write().await = uid.to_string();
                                                 }
+                                                if let Some(uname) = data["user"]["username"].as_str() {
+                                                    *self_uname_ref.write().await = uname.to_string();
+                                                }
                                             }
 
                                             // Gate Trigger: Listen for opponent messages when Queue is NOT EMPTY
                                             if event_type == "MESSAGE_CREATE" {
                                                 let cid = data["channel_id"].as_str().unwrap_or("");
                                                 let author_id = data["author"]["id"].as_str().unwrap_or("");
+                                                let author_uname = data["author"]["username"].as_str().unwrap_or("");
+
                                                 let my_id = self_id_ref.read().await.clone();
+                                                let my_uname = self_uname_ref.read().await.clone();
+
+                                                let is_self_message = (!my_id.is_empty() && author_id == my_id) 
+                                                    || (!my_uname.is_empty() && author_uname == my_uname);
 
                                                 let is_mode_on = *queue_mode_ref.read().await;
 
-                                                if is_mode_on && !cid.is_empty() && author_id != my_id {
+                                                if is_mode_on && !cid.is_empty() && !is_self_message {
                                                     let next_num = {
                                                         let mut q_map = queue_ref.write().await;
                                                         if let Some(q) = q_map.get_mut(cid) {
@@ -330,8 +341,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         let mut map = queue_map_ref.write().await;
                                         let q = map.entry(channel_id.clone()).or_insert_with(Vec::new);
 
-                                        if q.is_empty() {
-                                            // First item popped and transmitted immediately
+                                        let is_empty = q.is_empty();
+
+                                        if is_empty {
+                                            // The FIRST number (X) is sent directly to Discord
                                             let token_sub = token.clone();
                                             let client_sub = Arc::clone(&client);
                                             let base_hw_delay = *hw_delay_ref.read().await;
@@ -366,6 +379,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                     .await;
                                             });
                                         } else {
+                                            // Generated / subsequent numbers (X+2, Y+2) stay in queue array
                                             q.push(number);
                                         }
 
