@@ -1,0 +1,19 @@
+name: Rust Cloud Builder Task
+on:
+  push:
+    branches: [ "master" ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Compile Release Binaries
+      run: cargo build --release --bin local_tui --bin remote_proxy
+    - uses: actions/upload-artifact@v4
+      with:
+        name: fast-discord-binaries
+        path: |
+          target/release/local_tui.exe
+          target/release/remote_proxy.exe

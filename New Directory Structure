@@ -1,0 +1,23 @@
+.
+├── Cargo.toml
+├── .env                  <-- (Remote Server: DISCORD_TOKEN=...)
+├── src/
+│   ├── lib.rs            <-- Library module definitions
+│   ├── main.rs           <-- Stub entry point for standard cargo run
+│   ├── models.rs
+│   ├── bin/
+│   │   ├── local_tui.rs    <-- Local TUI binary (Runs in Dhaka, 0ms input latency)
+│   │   └── remote_proxy.rs <-- Remote Proxy server binary (Runs in USA Codespace)
+│   ├── app/
+│   │   ├── mod.rs
+│   │   ├── state.rs
+│   │   └── handlers.rs
+│   ├── network/
+│   │   ├── mod.rs
+│   │   ├── gateway.rs
+│   │   └── http.rs
+│   └── tui/
+│       ├── mod.rs
+│       ├── components.rs
+│       ├── modals.rs
+│       └── theme.rs
