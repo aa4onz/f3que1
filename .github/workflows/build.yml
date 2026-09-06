@@ -1,7 +1,7 @@
 name: Rust Cloud Builder Task
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]
   workflow_dispatch:
 jobs:
   build:
