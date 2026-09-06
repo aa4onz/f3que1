@@ -13,23 +13,27 @@ use ratatui::{
 pub fn render(f: &mut Frame, state: &mut AppState) {
     let screen_size = f.size();
 
-    let horizontal_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(10),
-            Constraint::Percentage(80),
-            Constraint::Percentage(10),
-        ])
-        .split(screen_size);
-
-    let middle_area = horizontal_chunks[1];
+    // Responsive horizontal layout with proper margins
+    let middle_area = if screen_size.width > 100 {
+        let horizontal_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(5),
+                Constraint::Percentage(90),
+                Constraint::Percentage(5),
+            ])
+            .split(screen_size);
+        horizontal_chunks[1]
+    } else {
+        screen_size
+    };
 
     let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Real-time Queue Monitor Header
-            Constraint::Min(3),    // Messages List
-            Constraint::Length(3), // Input Box
+            Constraint::Length(3), // Queue Monitor Header
+            Constraint::Min(5),    // Messages Chat List
+            Constraint::Length(3), // Input Text Box
         ])
         .split(middle_area);
 

@@ -38,11 +38,9 @@ impl crate::app::state::AppState {
         match event {
             AppEvent::ToggleQueueMode => {
                 self.queue_mode = !self.queue_mode;
-                let _ = tx.send(AppEvent::ToggleQueueMode).await;
             }
             AppEvent::ClearQueue => {
                 self.queue.clear();
-                let _ = tx.send(AppEvent::ClearQueue).await;
             }
             AppEvent::UpdateQueueState(q) => {
                 self.queue = q;

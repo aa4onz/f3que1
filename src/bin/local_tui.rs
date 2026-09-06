@@ -103,16 +103,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Initial history fetch
         let _ = net_tx.send(AppEvent::FetchChannelHistory(target_channel_id)).await;
 
+        // Draw initial frame immediately
+        {
+            let mut state = app_state.lock().await;
+            terminal.draw(|f| {
+                tui::render(f, &mut state);
+            })?;
+        }
+
         while let Some(event) = event_rx.recv().await {
             let mut state = app_state.lock().await;
             let mut should_exit = false;
 
             match event {
-                AppEvent::HttpTriggerTyping | AppEvent::HttpSendChat { .. } | AppEvent::FetchChannelHistory(_) => {
+                AppEvent::HttpTriggerTyping 
+                | AppEvent::HttpSendChat { .. } 
+                | AppEvent::FetchChannelHistory(_) 
+                | AppEvent::EnqueueNumberItem(_) 
+                | AppEvent::UpdateHardwareDelay(_) => {
                     let n_tx = net_tx.clone();
                     tokio::spawn(async move {
                         let _ = n_tx.send(event).await;
                     });
+                }
+                AppEvent::ToggleQueueMode | AppEvent::ClearQueue => {
+                    let n_tx = net_tx.clone();
+                    let ev_clone = event.clone();
+                    tokio::spawn(async move {
+                        let _ = n_tx.send(ev_clone).await;
+                    });
+                    if state.handle_event(event, &event_tx).await {
+                        should_exit = true;
+                    }
                 }
                 _ => {
                     if state.handle_event(event, &event_tx).await {
@@ -123,11 +145,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             while let Ok(next_event) = event_rx.try_recv() {
                 match next_event {
-                    AppEvent::HttpTriggerTyping | AppEvent::HttpSendChat { .. } | AppEvent::FetchChannelHistory(_) => {
+                    AppEvent::HttpTriggerTyping 
+                    | AppEvent::HttpSendChat { .. } 
+                    | AppEvent::FetchChannelHistory(_) 
+                    | AppEvent::EnqueueNumberItem(_) 
+                    | AppEvent::UpdateHardwareDelay(_) => {
                         let n_tx = net_tx.clone();
                         tokio::spawn(async move {
                             let _ = n_tx.send(next_event).await;
                         });
+                    }
+                    AppEvent::ToggleQueueMode | AppEvent::ClearQueue => {
+                        let n_tx = net_tx.clone();
+                        let ev_clone = next_event.clone();
+                        tokio::spawn(async move {
+                            let _ = n_tx.send(ev_clone).await;
+                        });
+                        if state.handle_event(next_event, &event_tx).await {
+                            should_exit = true;
+                        }
                     }
                     _ => {
                         if state.handle_event(next_event, &event_tx).await {
