@@ -1,0 +1,3 @@
+if state.handle_event(next_event, &event_tx).await {
+    should_exit = true;
+}

@@ -115,15 +115,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut state = app_state.lock().await;
             let mut should_exit = false;
 
-            match event {
+            match &event {
                 AppEvent::HttpTriggerTyping 
                 | AppEvent::HttpSendChat { .. } 
                 | AppEvent::FetchChannelHistory(_) 
                 | AppEvent::EnqueueNumberItem(_) 
                 | AppEvent::UpdateHardwareDelay(_) => {
                     let n_tx = net_tx.clone();
+                    let ev_clone = event.clone();
                     tokio::spawn(async move {
-                        let _ = n_tx.send(event).await;
+                        let _ = n_tx.send(ev_clone).await;
                     });
                 }
                 AppEvent::ToggleQueueMode | AppEvent::ClearQueue => {
@@ -132,27 +133,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tokio::spawn(async move {
                         let _ = n_tx.send(ev_clone).await;
                     });
-                    if state.handle_event(event, &event_tx).await {
-                        should_exit = true;
-                    }
                 }
-                _ => {
-                    if state.handle_event(event, &event_tx).await {
-                        should_exit = true;
-                    }
-                }
+                _ => {}
+            }
+
+            if state.handle_event(event, &event_tx).await {
+                should_exit = true;
             }
 
             while let Ok(next_event) = event_rx.try_recv() {
-                match next_event {
+                match &next_event {
                     AppEvent::HttpTriggerTyping 
                     | AppEvent::HttpSendChat { .. } 
                     | AppEvent::FetchChannelHistory(_) 
                     | AppEvent::EnqueueNumberItem(_) 
                     | AppEvent::UpdateHardwareDelay(_) => {
                         let n_tx = net_tx.clone();
+                        let ev_clone = next_event.clone();
                         tokio::spawn(async move {
-                            let _ = n_tx.send(next_event).await;
+                            let _ = n_tx.send(ev_clone).await;
                         });
                     }
                     AppEvent::ToggleQueueMode | AppEvent::ClearQueue => {
@@ -161,15 +160,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         tokio::spawn(async move {
                             let _ = n_tx.send(ev_clone).await;
                         });
-                        if state.handle_event(next_event, &event_tx).await {
-                            should_exit = true;
-                        }
                     }
-                    _ => {
-                        if state.handle_event(next_event, &event_tx).await {
-                            should_exit = true;
-                        }
-                    }
+                    _ => {}
+                }
+
+                if state.handle_event(next_event, &event_tx).await {
+                    should_exit = true;
                 }
             }
 
