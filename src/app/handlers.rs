@@ -364,9 +364,37 @@ impl crate::app::state::AppState {
 
                             let _ = tx.send(AppEvent::HttpSendChat { nonce, text }).await;
                         } else if let Some(num) = parsed_number {
-                            // Pre-load number into remote USA proxy queue for zero-latency execution
-                            self.queue.push(num);
-                            let _ = tx.send(AppEvent::EnqueueNumberItem(num)).await;
+                            // Queue Mode Enabled & Number Detected (+2 generator logic)
+                            if self.queue.is_empty() {
+                                // 1. First number X is sent immediately to keep pace with screen
+                                let now_instant = Instant::now();
+                                let nonce = format!("n-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+                                let current_time_str = Local::now().format("%H:%M:%S%.3f").to_string();
+
+                                self.outbound_timers.insert(nonce.clone(), now_instant);
+
+                                self.messages.push(DiscordMessage {
+                                    nonce: nonce.clone(),
+                                    author: self.self_username.clone(),
+                                    content: num.to_string(),
+                                    timestamp: format!("{} | ...", current_time_str),
+                                    status: MessageStatus::Sending,
+                                });
+
+                                if !self.messages.is_empty() {
+                                    self.list_state.select(Some(self.messages.len() - 1));
+                                }
+
+                                let _ = tx.send(AppEvent::HttpSendChat { nonce, text: num.to_string() }).await;
+
+                                // 2. Pre-load X+2 into the USA proxy queue
+                                self.queue.push(num + 2);
+                                let _ = tx.send(AppEvent::EnqueueNumberItem(num + 2)).await;
+                            } else {
+                                // Queue non-empty: Pre-load Y+2 into the USA proxy queue tail
+                                self.queue.push(num + 2);
+                                let _ = tx.send(AppEvent::EnqueueNumberItem(num + 2)).await;
+                            }
                         }
                     }
                     _ => {}
