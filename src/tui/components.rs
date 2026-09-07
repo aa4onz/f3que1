@@ -1,37 +1,43 @@
 // src/tui/components.rs
-use crate::models::{DiscordMessage, MessageStatus};
+use crate::models::{DiscordMessage, MessageStatus, QueuedItem};
 use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
-pub fn render_queue_monitor<'a>(queue_mode: bool, queue: &[i64], hw_delay: u64) -> Paragraph<'a> {
-    let mode_str = if queue_mode {
+pub fn render_queue_sidebar<'a>(queue_mode: bool, queue: &[QueuedItem], hw_delay: u64) -> List<'a> {
+    let mode_span = if queue_mode {
         Span::styled("ENABLED", Style::default().fg(Color::Green))
     } else {
         Span::styled("DISABLED", Style::default().fg(Color::Red))
     };
 
-    let queue_str = if queue.is_empty() {
-        Span::styled("[ EMPTY ]", Style::default().fg(Color::DarkGray))
-    } else {
-        let items: Vec<String> = queue.iter().map(|n| n.to_string()).collect();
-        Span::styled(format!("[ {} ]", items.join(" ➔ ")), Style::default().fg(Color::Yellow))
-    };
+    let mut items: Vec<ListItem> = Vec::new();
 
-    let line = Line::from(vec![
-        Span::raw(" Queue Mode: "),
-        mode_str,
-        Span::raw(" | Items: "),
-        queue_str,
-        Span::raw(" | Hardware Delay: "),
+    items.push(ListItem::new(Line::from(vec![
+        Span::raw("Status: "),
+        mode_span,
+    ])));
+
+    items.push(ListItem::new(Line::from(vec![
+        Span::raw("HW Delay: "),
         Span::styled(format!("{}ms", hw_delay), Style::default().fg(Color::Cyan)),
-        Span::raw(" | [p / Ctrl+Q: Toggle Mode | F7/Ctrl+C: Clear Queue]"),
-    ]);
+    ])));
 
-    Paragraph::new(line)
-        .block(Block::default().borders(Borders::ALL).title(" Stealth Queue Engine "))
+    items.push(ListItem::new(Line::from(Span::styled("────────────────────", Style::default().fg(Color::DarkGray)))));
+
+    if queue.is_empty() {
+        items.push(ListItem::new(Span::styled("(Empty Queue)", Style::default().fg(Color::DarkGray))));
+    } else {
+        for (idx, q_item) in queue.iter().enumerate() {
+            let label = format!("[#{}] {}", idx + 1, q_item.content);
+            items.push(ListItem::new(Span::styled(label, Style::default().fg(Color::Yellow))));
+        }
+    }
+
+    List::new(items)
+        .block(Block::default().borders(Borders::ALL).title(" Stealth Queue "))
 }
 
 pub fn render_messages<'a>(
@@ -99,7 +105,7 @@ pub fn render_messages<'a>(
 
     let time_status = if show_time { "F2: Hide Time" } else { "F2: Show Time" };
     let lat_status = if show_lat { "F3: Hide Latency" } else { "F3: Show Latency" };
-    let title_text = format!(" messages [{} | {} | F5/Ctrl+G: Channel | Ctrl+X/F4: Switch Token] ", time_status, lat_status);
+    let title_text = format!(" Messages [{} | {} | F5/Ctrl+G: Channel | F6/Ctrl+Q: Queue | F7/Ctrl+C: Clear Queue] ", time_status, lat_status);
 
     List::new(msgs)
         .block(Block::default()
@@ -116,5 +122,5 @@ pub fn render_input_box<'a>(input_text: &'a str) -> Paragraph<'a> {
     let input_line = Line::from(vec![prompt_span, text_span]);
 
     Paragraph::new(input_line)
-        .block(Block::default().borders(Borders::ALL))
+        .block(Block::default().borders(Borders::ALL).title(" Send Message "))
 }

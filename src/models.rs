@@ -27,6 +27,12 @@ pub struct DiscordMessage {
     pub status: MessageStatus,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QueuedItem {
+    pub content: String,
+    pub number: i64,
+}
+
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     IncomingMessage(DiscordMessage),
@@ -47,8 +53,8 @@ pub enum AppEvent {
     ScrollChat(i32),
     ToggleQueueMode,
     ClearQueue,
-    UpdateQueueState(Vec<i64>),
-    EnqueueNumberItem(i64),
+    UpdateQueueState(Vec<QueuedItem>),
+    EnqueueNumberItem(QueuedItem),
     UpdateHardwareDelay(u64),
 }
 
@@ -97,7 +103,7 @@ pub enum ProxyAction {
     Ping,
     SetQueueMode { enabled: bool },
     ClearQueue { channel_id: String },
-    EnqueueNumber { channel_id: String, number: i64 },
+    EnqueueNumber { channel_id: String, item: QueuedItem },
     UpdateHardwareDelay { delay_ms: u64 },
 }
 
@@ -108,6 +114,6 @@ pub enum ProxyResponse {
     MessageResult { nonce: String, success: bool, error: Option<String> },
     ChannelHistory { channel_id: String, messages: serde_json::Value },
     GatewayEvent { event_type: String, data: serde_json::Value },
-    QueueSync { queue: Vec<i64> },
+    QueueSync { queue: Vec<QueuedItem> },
     Pong,
 }

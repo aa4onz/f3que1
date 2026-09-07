@@ -1,5 +1,5 @@
 // src/bin/remote_proxy.rs
-use fast_discord_tui::models::{ProxyAction, ProxyResponse};
+use fast_discord_tui::models::{ProxyAction, ProxyResponse, QueuedItem};
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, USER_AGENT};
@@ -54,7 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (gw_tx, _) = broadcast::channel::<ProxyResponse>(512);
 
     // Global Queue and Stealth State across channels
-    let active_queue: Arc<RwLock<HashMap<String, Vec<i64>>>> = Arc::new(RwLock::new(HashMap::new()));
+    let active_queue: Arc<RwLock<HashMap<String, Vec<QueuedItem>>>> = Arc::new(RwLock::new(HashMap::new()));
     let queue_mode_enabled = Arc::new(RwLock::new(true));
     let hardware_delay_ms = Arc::new(RwLock::new(45u64));
     let self_user_id = Arc::new(RwLock::new(String::new()));
@@ -177,7 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 let is_mode_on = *queue_mode_ref.read().await;
 
                                                 if is_mode_on && !cid.is_empty() && !is_self_message {
-                                                    let next_num = {
+                                                    let next_item = {
                                                         let mut q_map = queue_ref.write().await;
                                                         if let Some(q) = q_map.get_mut(cid) {
                                                             if !q.is_empty() {
@@ -190,7 +190,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                         }
                                                     };
 
-                                                    if let Some(num) = next_num {
+                                                    if let Some(item) = next_item {
                                                         let remaining_q = queue_ref.read().await.get(cid).cloned().unwrap_or_default();
                                                         let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: remaining_q });
 
@@ -206,7 +206,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                             let msg_url = format!("https://discord.com/api/v10/channels/{}/messages", cid_sub);
                                                             let nonce = generate_snowflake_nonce();
                                                             let payload = serde_json::json!({
-                                                                "content": num.to_string(),
+                                                                "content": item.content,
                                                                 "nonce": nonce
                                                             });
 
@@ -295,6 +295,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 match action {
                                     ProxyAction::SetQueueMode { enabled } => {
                                         *mode_flag_ref.write().await = enabled;
+                                        if !enabled {
+                                            let mut map = queue_map_ref.write().await;
+                                            for q in map.values_mut() {
+                                                q.clear();
+                                            }
+                                            let sync_resp = ProxyResponse::QueueSync { queue: Vec::new() };
+                                            let resp_json = serde_json::to_string(&sync_resp).unwrap();
+                                            let mut w = write_arc.lock().await;
+                                            let _ = w.send(Message::Text(resp_json)).await;
+                                        }
                                     }
                                     ProxyAction::UpdateHardwareDelay { delay_ms } => {
                                         *hw_delay_ref.write().await = delay_ms;
@@ -309,10 +319,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         let mut w = write_arc.lock().await;
                                         let _ = w.send(Message::Text(resp_json)).await;
                                     }
-                                    ProxyAction::EnqueueNumber { channel_id, number } => {
+                                    ProxyAction::EnqueueNumber { channel_id, item } => {
                                         let mut map = queue_map_ref.write().await;
                                         let q = map.entry(channel_id.clone()).or_insert_with(Vec::new);
-                                        q.push(number);
+                                        q.push(item);
 
                                         let sync_resp = ProxyResponse::QueueSync { queue: q.clone() };
                                         let resp_json = serde_json::to_string(&sync_resp).unwrap();

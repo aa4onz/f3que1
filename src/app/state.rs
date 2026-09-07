@@ -1,5 +1,5 @@
 // src/app/state.rs
-use crate::models::DiscordMessage;
+use crate::models::{DiscordMessage, QueuedItem};
 use ratatui::widgets::ListState;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -32,7 +32,7 @@ pub struct AppState {
     pub show_latency: bool,
     pub scroll_offset: usize,
     pub queue_mode: bool,
-    pub queue: Vec<i64>,
+    pub queue: Vec<QueuedItem>,
     pub last_keystroke_time: Option<Instant>,
     pub hardware_delay_ms: u64,
 }

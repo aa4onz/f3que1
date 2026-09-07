@@ -13,36 +13,30 @@ use ratatui::{
 pub fn render(f: &mut Frame, state: &mut AppState) {
     let screen_size = f.size();
 
-    // Responsive horizontal layout with proper margins
-    let middle_area = if screen_size.width > 100 {
-        let horizontal_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(5),
-                Constraint::Percentage(90),
-                Constraint::Percentage(5),
-            ])
-            .split(screen_size);
-        horizontal_chunks[1]
-    } else {
-        screen_size
-    };
-
+    // Vertical layout split into Main Body & Input Box
     let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Queue Monitor Header
-            Constraint::Min(5),    // Messages Chat List
+            Constraint::Min(5),    // Main Body (Queue Sidebar + Messages Chat)
             Constraint::Length(3), // Input Text Box
         ])
-        .split(middle_area);
+        .split(screen_size);
 
-    let queue_widget = components::render_queue_monitor(
+    // Horizontal split for Main Body: Left Sidebar (Queue) and Right Window (Chat)
+    let body_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(28), // Left Queue Box
+            Constraint::Percentage(72), // Right Chat Messages List
+        ])
+        .split(vertical_chunks[0]);
+
+    let queue_widget = components::render_queue_sidebar(
         state.queue_mode,
         &state.queue,
         state.hardware_delay_ms,
     );
-    f.render_widget(queue_widget, vertical_chunks[0]);
+    f.render_widget(queue_widget, body_chunks[0]);
 
     let msg_list = components::render_messages(
         &state.messages,
@@ -50,10 +44,10 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
         state.show_timestamp,
         state.show_latency,
     );
-    f.render_stateful_widget(msg_list, vertical_chunks[1], &mut state.list_state);
+    f.render_stateful_widget(msg_list, body_chunks[1], &mut state.list_state);
 
     let input_box = components::render_input_box(&state.input_text);
-    f.render_widget(input_box, vertical_chunks[2]);
+    f.render_widget(input_box, vertical_chunks[1]);
 
     // Render Modal Overlays
     match state.active_modal {

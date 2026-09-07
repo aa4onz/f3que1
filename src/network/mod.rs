@@ -200,7 +200,7 @@ pub fn spawn_network_handlers(
                                 Some(ProxyAction::SetQueueMode { enabled: state_mode })
                             }
                             AppEvent::ClearQueue => Some(ProxyAction::ClearQueue { channel_id: active_cid }),
-                            AppEvent::EnqueueNumberItem(num) => Some(ProxyAction::EnqueueNumber { channel_id: active_cid, number: num }),
+                            AppEvent::EnqueueNumberItem(item) => Some(ProxyAction::EnqueueNumber { channel_id: active_cid, item }),
                             AppEvent::UpdateHardwareDelay(ms) => Some(ProxyAction::UpdateHardwareDelay { delay_ms: ms }),
                             AppEvent::FetchChannelHistory(cid) => Some(ProxyAction::FetchHistory {
                                 channel_id: cid,

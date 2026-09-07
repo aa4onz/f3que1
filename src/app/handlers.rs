@@ -1,32 +1,41 @@
 // src/app/handlers.rs
 use crate::app::state::ActiveModal;
-use crate::models::{AppEvent, DiscordMessage, MessageStatus};
+use crate::models::{AppEvent, DiscordMessage, MessageStatus, QueuedItem};
 use chrono::Local;
 use crossterm::event::{Event, KeyCode, KeyModifiers, MouseEventKind};
 use std::time::Instant;
 use tokio::sync::mpsc::Sender;
 
-fn parse_text_number(text: &str) -> Option<i64> {
+pub fn parse_and_increment_text(text: &str) -> Option<(i64, String)> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return None;
     }
 
-    // Rule 1: Starts with a digit or preceded by space/underscore followed by digit
-    let first_char = text.chars().next().unwrap();
-    let is_num_start = first_char.is_ascii_digit()
-        || (text.starts_with(' ') && text.trim_start().chars().next().map_or(false, |c| c.is_ascii_digit()))
-        || (text.starts_with('_') && text.trim_start_matches('_').chars().next().map_or(false, |c| c.is_ascii_digit()));
+    // Isolate leading numeric sequence or prefix-trimmed numbers
+    let mut num_chars = String::new();
+    let mut prefix_len = 0;
 
-    if is_num_start {
-        // Isolate numeric portion
-        let num_str: String = trimmed.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if !num_str.is_empty() {
-            return num_str.parse::<i64>().ok();
+    for (i, c) in text.char_indices() {
+        if c.is_ascii_digit() {
+            num_chars.push(c);
+        } else if num_chars.is_empty() && (c == ' ' || c == '_') {
+            prefix_len = i + c.len_utf8();
+            continue;
+        } else {
+            break;
         }
     }
 
-    None
+    if let Ok(num) = num_chars.parse::<i64>() {
+        let suffix = &text[prefix_len + num_chars.len()..];
+        let next_num = num + 2;
+        let prefix = &text[..prefix_len];
+        let new_text = format!("{}{}{}", prefix, next_num, suffix);
+        Some((next_num, new_text))
+    } else {
+        None
+    }
 }
 
 impl crate::app::state::AppState {
@@ -38,6 +47,10 @@ impl crate::app::state::AppState {
         match event {
             AppEvent::ToggleQueueMode => {
                 self.queue_mode = !self.queue_mode;
+                if !self.queue_mode {
+                    self.queue.clear();
+                    let _ = tx.send(AppEvent::ClearQueue).await;
+                }
             }
             AppEvent::ClearQueue => {
                 self.queue.clear();
@@ -91,6 +104,7 @@ impl crate::app::state::AppState {
                     let _ = std::fs::write(".channel_cache", &new_channel_id);
                     self.messages.clear();
                     self.queue.clear();
+                    let _ = tx.send(AppEvent::ClearQueue).await;
                     let _ = tx.send(AppEvent::FetchChannelHistory(new_channel_id)).await;
                 }
             }
@@ -137,10 +151,14 @@ impl crate::app::state::AppState {
                 }
             }
             AppEvent::GatewayClosed => {
+                // Clear queue immediately if local PC internet/gateway disconnects
+                self.queue.clear();
+                let _ = tx.send(AppEvent::ClearQueue).await;
+
                 self.messages.push(DiscordMessage {
                     nonce: "err-close".into(),
                     author: "System".into(),
-                    content: "⚠️ WebSocket closed. Reconnecting...".into(),
+                    content: "⚠️ Internet / WebSocket disconnected. Stealth queue cleared.".into(),
                     timestamp: Local::now().format("%H:%M:%S%.3f").to_string(),
                     status: MessageStatus::Failed,
                 });
@@ -210,8 +228,12 @@ impl crate::app::state::AppState {
                 }
 
                 // Global shortcut keys
-                if k.code == KeyCode::Char('q') && k.modifiers.contains(KeyModifiers::CONTROL) {
+                if (k.code == KeyCode::Char('q') || k.code == KeyCode::Char('Q')) && k.modifiers.contains(KeyModifiers::CONTROL) {
                     self.queue_mode = !self.queue_mode;
+                    if !self.queue_mode {
+                        self.queue.clear();
+                        let _ = tx.send(AppEvent::ClearQueue).await;
+                    }
                     let _ = tx.send(AppEvent::ToggleQueueMode).await;
                     return false;
                 }
@@ -229,11 +251,6 @@ impl crate::app::state::AppState {
                     self.modal_input.clear();
                     return false;
                 }
-                if (k.code == KeyCode::Char('p') || k.code == KeyCode::Char('P')) && self.input_text.is_empty() {
-                    self.queue_mode = !self.queue_mode;
-                    let _ = tx.send(AppEvent::ToggleQueueMode).await;
-                    return false;
-                }
 
                 // Keystroke Latency Measurement: calculate time delta between key actions
                 let now = Instant::now();
@@ -249,6 +266,10 @@ impl crate::app::state::AppState {
                 match k.code {
                     KeyCode::F(6) => {
                         self.queue_mode = !self.queue_mode;
+                        if !self.queue_mode {
+                            self.queue.clear();
+                            let _ = tx.send(AppEvent::ClearQueue).await;
+                        }
                         let _ = tx.send(AppEvent::ToggleQueueMode).await;
                     }
                     KeyCode::F(7) => {
@@ -338,11 +359,9 @@ impl crate::app::state::AppState {
                     KeyCode::Enter if !self.input_text.is_empty() => {
                         self.last_typing_sent = None;
                         let text = std::mem::take(&mut self.input_text);
-                        let parsed_number = parse_text_number(&text);
+                        let parsed_inc = parse_and_increment_text(&text);
 
-                        let is_number = parsed_number.is_some();
-
-                        if !self.queue_mode || !is_number {
+                        if !self.queue_mode || parsed_inc.is_none() {
                             // Standard Text or Queue Mode Disabled: Bypass Queue completely
                             let now_instant = Instant::now();
                             let nonce = format!("n-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
@@ -363,10 +382,14 @@ impl crate::app::state::AppState {
                             }
 
                             let _ = tx.send(AppEvent::HttpSendChat { nonce, text }).await;
-                        } else if let Some(num) = parsed_number {
-                            // Queue Mode Enabled & Number Detected (+2 generator logic)
+                        } else if let Some((num, next_text)) = parsed_inc {
+                            let queued_item = QueuedItem {
+                                content: next_text,
+                                number: num,
+                            };
+
                             if self.queue.is_empty() {
-                                // 1. First number X is sent immediately to keep pace with screen
+                                // 1. First message is sent immediately to keep pace with screen
                                 let now_instant = Instant::now();
                                 let nonce = format!("n-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
                                 let current_time_str = Local::now().format("%H:%M:%S%.3f").to_string();
@@ -376,7 +399,7 @@ impl crate::app::state::AppState {
                                 self.messages.push(DiscordMessage {
                                     nonce: nonce.clone(),
                                     author: self.self_username.clone(),
-                                    content: num.to_string(),
+                                    content: text.clone(),
                                     timestamp: format!("{} | ...", current_time_str),
                                     status: MessageStatus::Sending,
                                 });
@@ -385,15 +408,15 @@ impl crate::app::state::AppState {
                                     self.list_state.select(Some(self.messages.len() - 1));
                                 }
 
-                                let _ = tx.send(AppEvent::HttpSendChat { nonce, text: num.to_string() }).await;
+                                let _ = tx.send(AppEvent::HttpSendChat { nonce, text }).await;
 
-                                // 2. Pre-load X+2 into the USA proxy queue
-                                self.queue.push(num + 2);
-                                let _ = tx.send(AppEvent::EnqueueNumberItem(num + 2)).await;
+                                // 2. Pre-load incremented item (+2) into USA proxy queue
+                                self.queue.push(queued_item.clone());
+                                let _ = tx.send(AppEvent::EnqueueNumberItem(queued_item)).await;
                             } else {
-                                // Queue non-empty: Pre-load Y+2 into the USA proxy queue tail
-                                self.queue.push(num + 2);
-                                let _ = tx.send(AppEvent::EnqueueNumberItem(num + 2)).await;
+                                // Queue non-empty: Pre-load item into proxy queue tail
+                                self.queue.push(queued_item.clone());
+                                let _ = tx.send(AppEvent::EnqueueNumberItem(queued_item)).await;
                             }
                         }
                     }
