@@ -132,7 +132,7 @@ impl crate::app::state::AppState {
                 if let Some(m) = self.messages.iter_mut().find(|x| x.nonce == nonce) {
                     m.status = MessageStatus::Failed;
                 }
-                if !self.failed_nonces.contains(|nonce) {
+                if !self.failed_nonces.contains(&nonce) {
                     self.failed_nonces.push(nonce);
                 }
             }
