@@ -9,7 +9,7 @@ use std::env;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, Mutex, RwLock};
-use tokio::time::{interval, sleep, Duration};
+use tokio::time::{interval, Duration};
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::{accept_async, connect_async};
 
@@ -20,18 +20,6 @@ struct GatewayPayload {
     d: serde_json::Value,
     #[serde(default)]
     t: Option<String>,
-}
-
-/// Generates realistic human reaction jitter following a realistic skewed distribution (120ms - 380ms)
-fn generate_human_reaction_jitter(hardware_delay: u64) -> u64 {
-    let mut rng = rand::thread_rng();
-    // Skewed human cognitive reaction latency (base reaction + hardware baseline)
-    let cognitive_delay: u64 = match rng.gen_range(1..=100) {
-        1..=70 => rng.gen_range(140..=260),  // Standard fast human reaction (70% probability)
-        71..=92 => rng.gen_range(261..=380), // Normal human variance (22% probability)
-        _ => rng.gen_range(381..=520),       // Slight hesitation/lag (8% probability)
-    };
-    hardware_delay.saturating_add(cognitive_delay)
 }
 
 /// Generates Discord Snowflake ID formatted string for nonces
@@ -94,7 +82,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let token_clone = discord_token.clone();
     let queue_ref = Arc::clone(&active_queue);
     let queue_mode_ref = Arc::clone(&queue_mode_enabled);
-    let delay_ref = Arc::clone(&hardware_delay_ms);
     let client_ref = Arc::clone(&http_client);
     let gw_writer_ref = Arc::clone(&gw_write_arc);
     let self_id_ref = Arc::clone(&self_user_id);
@@ -175,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 }
                                             }
 
-                                            // Gate Trigger: Listen for opponent messages when Queue is NOT EMPTY
+                                            // Gate Trigger: Instant zero-latency execution on opponent message
                                             if event_type == "MESSAGE_CREATE" {
                                                 let cid = data["channel_id"].as_str().unwrap_or("");
                                                 let author_id = data["author"]["id"].as_str().unwrap_or("");
@@ -207,30 +194,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                         let remaining_q = queue_ref.read().await.get(cid).cloned().unwrap_or_default();
                                                         let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: remaining_q });
 
-                                                        // Stealth Delay & Hardware Mimicry Exec
-                                                        let base_hw_delay = *delay_ref.read().await;
-                                                        let total_human_delay = generate_human_reaction_jitter(base_hw_delay);
                                                         let token_sub = token_clone.clone();
                                                         let client_sub = Arc::clone(&client_ref);
                                                         let cid_sub = cid.to_string();
 
+                                                        // MAXIMUM INSTANT SPEED: Zero artificial delay, direct HTTP POST from USA server
                                                         tokio::spawn(async move {
-                                                            // 1. Wait realistic cognitive processing time before typing
-                                                            let typing_lead_delay = total_human_delay / 3;
-                                                            sleep(Duration::from_millis(typing_lead_delay)).await;
-
-                                                            let typing_url = format!("https://discord.com/api/v10/channels/{}/typing", cid_sub);
-                                                            let _ = client_sub.post(&typing_url)
-                                                                .header("Authorization", &token_sub)
-                                                                .header("Content-Length", "0")
-                                                                .send()
-                                                                .await;
-
-                                                            // 2. Wait remaining typing delay
-                                                            let remaining_delay = total_human_delay.saturating_sub(typing_lead_delay);
-                                                            sleep(Duration::from_millis(remaining_delay)).await;
-
-                                                            // 3. Send HTTP POST message with Snowflake Nonce
                                                             let msg_url = format!("https://discord.com/api/v10/channels/{}/messages", cid_sub);
                                                             let nonce = generate_snowflake_nonce();
                                                             let payload = serde_json::json!({

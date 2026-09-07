@@ -132,7 +132,7 @@ impl crate::app::state::AppState {
                 if let Some(m) = self.messages.iter_mut().find(|x| x.nonce == nonce) {
                     m.status = MessageStatus::Failed;
                 }
-                if !self.failed_nonces.contains(&nonce) {
+                if !self.failed_nonces.contains(|nonce) {
                     self.failed_nonces.push(nonce);
                 }
             }
@@ -364,37 +364,9 @@ impl crate::app::state::AppState {
 
                             let _ = tx.send(AppEvent::HttpSendChat { nonce, text }).await;
                         } else if let Some(num) = parsed_number {
-                            // Queue Mode Enabled & Number Detected (+2 generator logic)
-                            if self.queue.is_empty() {
-                                // First number X is sent immediately to Discord
-                                let now_instant = Instant::now();
-                                let nonce = format!("n-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
-                                let current_time_str = Local::now().format("%H:%M:%S%.3f").to_string();
-
-                                self.outbound_timers.insert(nonce.clone(), now_instant);
-
-                                self.messages.push(DiscordMessage {
-                                    nonce: nonce.clone(),
-                                    author: self.self_username.clone(),
-                                    content: num.to_string(),
-                                    timestamp: format!("{} | ...", current_time_str),
-                                    status: MessageStatus::Sending,
-                                });
-
-                                if !self.messages.is_empty() {
-                                    self.list_state.select(Some(self.messages.len() - 1));
-                                }
-
-                                let _ = tx.send(AppEvent::HttpSendChat { nonce, text: num.to_string() }).await;
-
-                                // X+2 stored in queue array
-                                self.queue.push(num + 2);
-                                let _ = tx.send(AppEvent::EnqueueNumberItem(num + 2)).await;
-                            } else {
-                                // Queue non-empty: Y+2 pushed to tail
-                                self.queue.push(num + 2);
-                                let _ = tx.send(AppEvent::EnqueueNumberItem(num + 2)).await;
-                            }
+                            // Pre-load number into remote USA proxy queue for zero-latency execution
+                            self.queue.push(num);
+                            let _ = tx.send(AppEvent::EnqueueNumberItem(num)).await;
                         }
                     }
                     _ => {}
