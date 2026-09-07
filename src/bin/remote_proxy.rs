@@ -340,48 +340,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     ProxyAction::EnqueueNumber { channel_id, number } => {
                                         let mut map = queue_map_ref.write().await;
                                         let q = map.entry(channel_id.clone()).or_insert_with(Vec::new);
-
-                                        let is_empty = q.is_empty();
-
-                                        if is_empty {
-                                            // The FIRST number (X) is sent directly to Discord
-                                            let token_sub = token.clone();
-                                            let client_sub = Arc::clone(&client);
-                                            let base_hw_delay = *hw_delay_ref.read().await;
-
-                                            tokio::spawn(async move {
-                                                let total_delay = generate_human_reaction_jitter(base_hw_delay);
-                                                let lead_typing_delay = total_delay / 3;
-                                                sleep(Duration::from_millis(lead_typing_delay)).await;
-
-                                                let typing_url = format!("https://discord.com/api/v10/channels/{}/typing", channel_id);
-                                                let _ = client_sub.post(&typing_url)
-                                                    .header("Authorization", &token_sub)
-                                                    .header("Content-Length", "0")
-                                                    .send()
-                                                    .await;
-
-                                                let remaining_delay = total_delay.saturating_sub(lead_typing_delay);
-                                                sleep(Duration::from_millis(remaining_delay)).await;
-
-                                                let msg_url = format!("https://discord.com/api/v10/channels/{}/messages", channel_id);
-                                                let nonce = generate_snowflake_nonce();
-                                                let payload = serde_json::json!({
-                                                    "content": number.to_string(),
-                                                    "nonce": nonce
-                                                });
-
-                                                let _ = client_sub.post(&msg_url)
-                                                    .header("Authorization", &token_sub)
-                                                    .header("Content-Type", "application/json")
-                                                    .json(&payload)
-                                                    .send()
-                                                    .await;
-                                            });
-                                        } else {
-                                            // Generated / subsequent numbers (X+2, Y+2) stay in queue array
-                                            q.push(number);
-                                        }
+                                        q.push(number);
 
                                         let sync_resp = ProxyResponse::QueueSync { queue: q.clone() };
                                         let resp_json = serde_json::to_string(&sync_resp).unwrap();

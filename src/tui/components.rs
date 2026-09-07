@@ -99,7 +99,7 @@ pub fn render_messages<'a>(
 
     let time_status = if show_time { "F2: Hide Time" } else { "F2: Show Time" };
     let lat_status = if show_lat { "F3: Hide Latency" } else { "F3: Show Latency" };
-    let title_text = format!(" messages [{} | {} | Ctrl+G/F5: Channel | Ctrl+X/F4: Switch Token] ", time_status, lat_status);
+    let title_text = format!(" messages [{} | {} | p/Ctrl+G: Channel | Ctrl+X/F4: Switch Token] ", time_status, lat_status);
 
     List::new(msgs)
         .block(Block::default()
