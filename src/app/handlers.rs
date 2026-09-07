@@ -28,7 +28,7 @@ pub fn parse_and_increment_text(text: &str) -> Option<(i64, String)> {
     }
 
     if let Ok(num) = num_chars.parse::<i64>() {
-        let suffix = &text[prefix_len + num_chars.len(). me..];
+        let suffix = &text[prefix_len + num_chars.len()..];
         let next_num = num + 2;
         let prefix = &text[..prefix_len];
         let new_text = format!("{}{}{}", prefix, next_num, suffix);

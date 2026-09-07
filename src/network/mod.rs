@@ -48,7 +48,7 @@ pub fn spawn_network_handlers(
         tokio::spawn(async move {
             loop {
                 if let Ok((ws_stream, _)) = connect_async(&target_url).await {
-                    let (mut write, mut read) = ws_stream.split();
+                    let (write, mut read) = ws_stream.split();
                     let write_arc = Arc::new(Mutex::new(write));
 
                     // Send initial SubscribeChannel to remote proxy
