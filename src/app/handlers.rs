@@ -28,7 +28,7 @@ pub fn parse_and_increment_text(text: &str) -> Option<(i64, String)> {
     }
 
     if let Ok(num) = num_chars.parse::<i64>() {
-        let suffix = &text[prefix_len + num_chars.len()..];
+        let suffix = &text[prefix_len + num_chars.len(). me..];
         let next_num = num + 2;
         let prefix = &text[..prefix_len];
         let new_text = format!("{}{}{}", prefix, next_num, suffix);
@@ -229,11 +229,6 @@ impl crate::app::state::AppState {
 
                 // Global shortcut keys
                 if (k.code == KeyCode::Char('q') || k.code == KeyCode::Char('Q')) && k.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.queue_mode = !self.queue_mode;
-                    if !self.queue_mode {
-                        self.queue.clear();
-                        let _ = tx.send(AppEvent::ClearQueue).await;
-                    }
                     let _ = tx.send(AppEvent::ToggleQueueMode).await;
                     return false;
                 }
@@ -265,11 +260,6 @@ impl crate::app::state::AppState {
 
                 match k.code {
                     KeyCode::F(6) => {
-                        self.queue_mode = !self.queue_mode;
-                        if !self.queue_mode {
-                            self.queue.clear();
-                            let _ = tx.send(AppEvent::ClearQueue).await;
-                        }
                         let _ = tx.send(AppEvent::ToggleQueueMode).await;
                     }
                     KeyCode::F(7) => {
