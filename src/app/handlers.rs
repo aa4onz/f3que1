@@ -230,8 +230,8 @@ impl crate::app::state::AppState {
                     return false;
                 }
                 if (k.code == KeyCode::Char('p') || k.code == KeyCode::Char('P')) && self.input_text.is_empty() {
-                    self.active_modal = ActiveModal::SwitchChannelPrompt;
-                    self.modal_input.clear();
+                    self.queue_mode = !self.queue_mode;
+                    let _ = tx.send(AppEvent::ToggleQueueMode).await;
                     return false;
                 }
 

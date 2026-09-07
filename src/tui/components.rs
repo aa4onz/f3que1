@@ -27,7 +27,7 @@ pub fn render_queue_monitor<'a>(queue_mode: bool, queue: &[i64], hw_delay: u64) 
         queue_str,
         Span::raw(" | Hardware Delay: "),
         Span::styled(format!("{}ms", hw_delay), Style::default().fg(Color::Cyan)),
-        Span::raw(" | [F6/Ctrl+Q: Toggle Mode | F7/Ctrl+C: Clear Queue]"),
+        Span::raw(" | [p / Ctrl+Q: Toggle Mode | F7/Ctrl+C: Clear Queue]"),
     ]);
 
     Paragraph::new(line)
@@ -99,7 +99,7 @@ pub fn render_messages<'a>(
 
     let time_status = if show_time { "F2: Hide Time" } else { "F2: Show Time" };
     let lat_status = if show_lat { "F3: Hide Latency" } else { "F3: Show Latency" };
-    let title_text = format!(" messages [{} | {} | p/Ctrl+G: Channel | Ctrl+X/F4: Switch Token] ", time_status, lat_status);
+    let title_text = format!(" messages [{} | {} | F5/Ctrl+G: Channel | Ctrl+X/F4: Switch Token] ", time_status, lat_status);
 
     List::new(msgs)
         .block(Block::default()
