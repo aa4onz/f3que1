@@ -162,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 }
                                             }
 
-                                            // Gate Trigger: Instant zero-latency execution on opponent message
+                                            // Gate Trigger: Instant execution with realistic human reaction delay
                                             if event_type == "MESSAGE_CREATE" {
                                                 let cid = data["channel_id"].as_str().unwrap_or("");
                                                 let author_id = data["author"]["id"].as_str().unwrap_or("");
@@ -198,8 +198,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                         let client_sub = Arc::clone(&client_ref);
                                                         let cid_sub = cid.to_string();
 
-                                                        // MAXIMUM INSTANT SPEED: Zero artificial delay, direct HTTP POST from USA server
+                                                        // Humanized reaction delay: random 200ms - 300ms delay before releasing item
                                                         tokio::spawn(async move {
+                                                            let delay_ms = rand::thread_rng().gen_range(200..=300);
+                                                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+
                                                             let msg_url = format!("https://discord.com/api/v10/channels/{}/messages", cid_sub);
                                                             let nonce = generate_snowflake_nonce();
                                                             let payload = serde_json::json!({
