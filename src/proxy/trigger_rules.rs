@@ -9,8 +9,8 @@ use tokio::sync::broadcast;
 /// 2. Zero check: If top item number is 0 (or content "0"), clear entire queue and do not send.
 /// 3. Queue size requirement: Queue must contain AT LEAST 2 items (queue size > 1).
 /// 4. First number added when queue was empty rule:
-///    If the top item was added when queue was empty (`was_empty == true`), it bypasses sender filters
-///    (does not care if sender is self, bot, or other) as long as queue size is > 1.
+///    If the top item was added when queue was empty (`was_empty == true`), it bypasses all sender/bot/response
+///    filters and triggers on any incoming message event as long as queue size is > 1.
 /// 5. Standard rules for subsequent items (`was_empty == false`):
 ///    - Self message check: Never trigger on own messages.
 ///    - Bot check: If sender is a bot, cancel and clear queue immediately.
@@ -67,6 +67,7 @@ pub async fn evaluate_and_trigger_queue(
         }
     }
 
+    // If was_empty == true, bypass sender filter, bot checks, and waiting for other responses.
     if !is_first_when_empty {
         // Standard Rules for subsequent items:
         // Rule 5a: Cannot trigger on own message

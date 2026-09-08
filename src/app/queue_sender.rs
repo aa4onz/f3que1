@@ -34,10 +34,12 @@ pub async fn enqueue_parsed_item(
     number: i64,
     tx: &Sender<AppEvent>,
 ) {
+    let was_empty = app.queue.is_empty();
+
     let queued_item = QueuedItem {
         content: text,
         number,
-        was_empty: false,
+        was_empty,
     };
 
     app.queue.push(queued_item.clone());
