@@ -65,6 +65,7 @@ pub async fn handle_client_connection(
                             &discord_token,
                             &http_client,
                             &subscribed_cid,
+                            &gw_broadcast_tx,
                         )
                         .await;
                     }

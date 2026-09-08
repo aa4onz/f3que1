@@ -111,8 +111,10 @@ pub async fn run_discord_gateway(
 
                                         // Stealth Queue Evaluation
                                         if event_type == "MESSAGE_CREATE" {
+                                            let cid = data["channel_id"].as_str().unwrap_or("");
                                             evaluate_and_trigger_queue(
-                                                &data,
+                                                Some(&data),
+                                                cid,
                                                 &state,
                                                 discord_token.clone(),
                                                 Arc::clone(&http_client),

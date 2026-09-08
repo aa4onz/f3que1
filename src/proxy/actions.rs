@@ -1,9 +1,10 @@
 use crate::models::{ProxyAction, ProxyResponse};
 use crate::proxy::state::ProxyState;
+use crate::proxy::trigger_rules::evaluate_and_trigger_queue;
 use futures_util::{stream::SplitSink, SinkExt};
 use std::sync::Arc;
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::WebSocketStream;
 
@@ -25,6 +26,7 @@ pub async fn handle_action(
     discord_token: &str,
     http_client: &Arc<reqwest::Client>,
     subscribed_cid: &Arc<tokio::sync::RwLock<String>>,
+    gw_broadcast_tx: &broadcast::Sender<ProxyResponse>,
 ) {
     match action {
         ProxyAction::SetQueueMode { enabled } => {
@@ -43,6 +45,16 @@ pub async fn handle_action(
         ProxyAction::EnqueueNumber { channel_id, item } => {
             let updated_q = state.enqueue_item(&channel_id, item).await;
             send_resp(write_arc, &ProxyResponse::QueueSync { queue: updated_q }).await;
+
+            evaluate_and_trigger_queue(
+                None,
+                &channel_id,
+                state,
+                discord_token.to_string(),
+                Arc::clone(http_client),
+                gw_broadcast_tx.clone(),
+            )
+            .await;
         }
         ProxyAction::SubscribeChannel { channel_id } => {
             *subscribed_cid.write().await = channel_id;
