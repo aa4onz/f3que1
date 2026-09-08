@@ -55,6 +55,7 @@ pub enum AppEvent {
     ScrollChat(i32),
     ToggleQueueMode,
     ClearQueue,
+    TriggerTopQueue,
     UpdateQueueState(Vec<QueuedItem>),
     EnqueueNumberItem(QueuedItem),
     UpdateHardwareDelay(u64),
@@ -105,6 +106,7 @@ pub enum ProxyAction {
     Ping,
     SetQueueMode { enabled: bool },
     ClearQueue { channel_id: String },
+    TriggerTopQueue { channel_id: String },
     EnqueueNumber { channel_id: String, item: QueuedItem },
     UpdateHardwareDelay { delay_ms: u64 },
 }

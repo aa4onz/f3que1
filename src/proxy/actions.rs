@@ -1,4 +1,5 @@
 use crate::models::{ProxyAction, ProxyResponse};
+use crate::proxy::queue::execute_queued_reaction;
 use crate::proxy::state::ProxyState;
 use crate::proxy::trigger_rules::evaluate_and_trigger_queue;
 use futures_util::{stream::SplitSink, SinkExt};
@@ -41,6 +42,19 @@ pub async fn handle_action(
         ProxyAction::ClearQueue { channel_id } => {
             let cleared = state.clear_queue(&channel_id).await;
             send_resp(write_arc, &ProxyResponse::QueueSync { queue: cleared }).await;
+        }
+        ProxyAction::TriggerTopQueue { channel_id } => {
+            if let Some((item, remaining_q)) = state.pop_next_item(&channel_id).await {
+                execute_queued_reaction(
+                    item,
+                    channel_id,
+                    discord_token.to_string(),
+                    Arc::clone(http_client),
+                    gw_broadcast_tx.clone(),
+                    remaining_q,
+                )
+                .await;
+            }
         }
         ProxyAction::EnqueueNumber { channel_id, item } => {
             let updated_q = state.enqueue_item(&channel_id, item).await;

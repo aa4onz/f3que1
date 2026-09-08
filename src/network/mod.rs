@@ -2,6 +2,7 @@
 pub mod gateway;
 pub mod http;
 
+use crate::app::queue_sender::send_direct_message;
 use crate::app::state::AppState;
 use crate::models::{AppEvent, DiscordApiMessage, DiscordMessage, MessageStatus, ProxyAction, ProxyResponse};
 use crate::network::http::DiscordHttpClient;
@@ -61,6 +62,7 @@ pub fn spawn_network_handlers(
                         Some(ProxyAction::SetQueueMode { enabled: state_mode })
                     }
                     AppEvent::ClearQueue => Some(ProxyAction::ClearQueue { channel_id: active_cid }),
+                    AppEvent::TriggerTopQueue => Some(ProxyAction::TriggerTopQueue { channel_id: active_cid }),
                     AppEvent::EnqueueNumberItem(item) => Some(ProxyAction::EnqueueNumber { channel_id: active_cid, item }),
                     AppEvent::UpdateHardwareDelay(ms) => Some(ProxyAction::UpdateHardwareDelay { delay_ms: ms }),
                     AppEvent::FetchChannelHistory(cid) => Some(ProxyAction::FetchHistory {
@@ -315,6 +317,7 @@ pub fn spawn_network_handlers(
 
         let http_client = Arc::new(DiscordHttpClient::new(reqwest_client, target_url));
         let worker_tx = event_tx;
+        let state_direct = Arc::clone(&app_state);
         let mut outbound_rx = net_rx;
 
         tokio::spawn(async move {
@@ -323,6 +326,20 @@ pub fn spawn_network_handlers(
                 let tx = worker_tx.clone();
 
                 match job {
+                    AppEvent::TriggerTopQueue => {
+                        let top_item = {
+                            let mut st = state_direct.lock().await;
+                            if !st.queue.is_empty() {
+                                Some(st.queue.remove(0))
+                            } else {
+                                None
+                            }
+                        };
+                        if let Some(item) = top_item {
+                            let mut st = state_direct.lock().await;
+                            send_direct_message(&mut st, item.content, &tx).await;
+                        }
+                    }
                     AppEvent::FetchChannelHistory(cid) => {
                         tokio::spawn(async move {
                             if let Ok(msgs) = client.fetch_messages(&cid, 50).await {

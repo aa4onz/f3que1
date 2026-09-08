@@ -105,7 +105,7 @@ pub fn render_messages<'a>(
 
     let time_status = if show_time { "F2: Hide Time" } else { "F2: Show Time" };
     let lat_status = if show_lat { "F3: Hide Latency" } else { "F3: Show Latency" };
-    let title_text = format!(" Messages [{} | {} | F5/Ctrl+G: Channel | F6/Ctrl+Q: Queue | F7/Ctrl+C: Clear Queue] ", time_status, lat_status);
+    let title_text = format!(" Messages [{} | {} | F5/Ctrl+G: Channel | F6/Ctrl+Q: Queue | F7/Ctrl+C: Clear Queue | F9: Trigger Top] ", time_status, lat_status);
 
     List::new(msgs)
         .block(Block::default()

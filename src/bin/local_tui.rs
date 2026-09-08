@@ -120,7 +120,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 | AppEvent::HttpSendChat { .. } 
                 | AppEvent::FetchChannelHistory(_) 
                 | AppEvent::EnqueueNumberItem(_) 
-                | AppEvent::UpdateHardwareDelay(_) => {
+                | AppEvent::UpdateHardwareDelay(_)
+                | AppEvent::TriggerTopQueue => {
                     let n_tx = net_tx.clone();
                     let ev_clone = event.clone();
                     tokio::spawn(async move {
@@ -147,7 +148,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     | AppEvent::HttpSendChat { .. } 
                     | AppEvent::FetchChannelHistory(_) 
                     | AppEvent::EnqueueNumberItem(_) 
-                    | AppEvent::UpdateHardwareDelay(_) => {
+                    | AppEvent::UpdateHardwareDelay(_)
+                    | AppEvent::TriggerTopQueue => {
                         let n_tx = net_tx.clone();
                         let ev_clone = next_event.clone();
                         tokio::spawn(async move {

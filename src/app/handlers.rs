@@ -24,6 +24,11 @@ impl crate::app::state::AppState {
             AppEvent::ClearQueue => {
                 self.queue.clear();
             }
+            AppEvent::TriggerTopQueue => {
+                if !self.queue.is_empty() {
+                    self.queue.remove(0);
+                }
+            }
             AppEvent::UpdateQueueState(q) => {
                 self.queue = q;
             }
@@ -234,6 +239,9 @@ impl crate::app::state::AppState {
                     KeyCode::F(7) => {
                         self.queue.clear();
                         let _ = tx.send(AppEvent::ClearQueue).await;
+                    }
+                    KeyCode::F(9) => {
+                        let _ = tx.send(AppEvent::TriggerTopQueue).await;
                     }
                     KeyCode::F(2) => {
                         self.show_timestamp = !self.show_timestamp;
