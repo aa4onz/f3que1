@@ -7,8 +7,7 @@ use tokio::sync::broadcast;
 /// Rules governing when a stealth queue reaction should trigger:
 /// 1. Queue Mode must be active.
 /// 2. Zero check: If top item number is 0 (or content "0"), clear entire queue and do not send.
-/// 3. Size check: First item (`was_empty == true`) requires q.len() > 1 to initiate.
-///    Subsequent items (`was_empty == false`) allow q.len() >= 1 to drain down to 0.
+/// 3. Size check: Requires queue size > 1 (at least 2 items queued) to trigger.
 /// 4. Subsequent items (`was_empty == false`):
 ///    - Triggers on incoming message event or latest channel message.
 ///    - Self message check: Never trigger on own messages.
@@ -50,16 +49,11 @@ pub async fn evaluate_and_trigger_queue(
         }
     };
 
-    // Rule 3: Queue size check
+    // Rule 3: Queue size check (requires queue size > 1)
     {
         let map = state.active_queue.read().await;
         if let Some(q) = map.get(channel_id) {
-            if q.is_empty() {
-                return;
-            }
-            // First item when empty requires > 1 item to start sequence.
-            // Subsequent items process as long as q.len() >= 1.
-            if is_first_when_empty && q.len() <= 1 {
+            if q.len() <= 1 {
                 return;
             }
         } else {
