@@ -1,4 +1,4 @@
-use crate::models::{ProxyResponse, QueuedItem};
+use crate::models::ProxyResponse;
 use crate::proxy::state::ProxyState;
 use crate::proxy::utils::generate_snowflake_nonce;
 use futures_util::{SinkExt, StreamExt};
@@ -105,12 +105,9 @@ pub async fn run_discord_gateway(
                                         let data = pay.d.clone();
 
                                         if event_type == "READY" {
-                                            if let Some(uid) = data["user"]["id"].as_str() {
-                                                *state.self_user_id.write().await = uid.to_string();
-                                            }
-                                            if let Some(uname) = data["user"]["username"].as_str() {
-                                                *state.self_username.write().await = uname.to_string();
-                                            }
+                                            let uid = data["user"]["id"].as_str().unwrap_or("");
+                                            let uname = data["user"]["username"].as_str().unwrap_or("");
+                                            state.set_self_info(uid, uname).await;
                                         }
 
                                         // Gate Trigger: Instant execution with realistic human reaction delay
@@ -119,36 +116,11 @@ pub async fn run_discord_gateway(
                                             let author_id = data["author"]["id"].as_str().unwrap_or("");
                                             let author_uname = data["author"]["username"].as_str().unwrap_or("");
 
-                                            let my_id = state.self_user_id.read().await.clone();
-                                            let my_uname = state.self_username.read().await.clone();
+                                            let is_self = state.is_self_author(author_id, author_uname).await;
+                                            let is_mode_on = state.is_queue_mode_enabled().await;
 
-                                            let is_self_message = (!my_id.is_empty() && author_id == my_id)
-                                                || (!my_uname.is_empty() && author_uname == my_uname);
-
-                                            let is_mode_on = *state.queue_mode_enabled.read().await;
-
-                                            if is_mode_on && !cid.is_empty() && !is_self_message {
-                                                let next_item = {
-                                                    let mut q_map = state.active_queue.write().await;
-                                                    if let Some(q) = q_map.get_mut(cid) {
-                                                        if !q.is_empty() {
-                                                            Some(q.remove(0))
-                                                        } else {
-                                                            None
-                                                        }
-                                                    } else {
-                                                        None
-                                                    }
-                                                };
-
-                                                if let Some(item) = next_item {
-                                                    let remaining_q = state
-                                                        .active_queue
-                                                        .read()
-                                                        .await
-                                                        .get(cid)
-                                                        .cloned()
-                                                        .unwrap_or_default();
+                                            if is_mode_on && !cid.is_empty() && !is_self {
+                                                if let Some((item, remaining_q)) = state.pop_next_item(cid).await {
                                                     let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync {
                                                         queue: remaining_q,
                                                     });

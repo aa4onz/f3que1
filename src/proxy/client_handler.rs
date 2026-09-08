@@ -1,11 +1,22 @@
 use crate::models::{ProxyAction, ProxyResponse};
 use crate::proxy::state::ProxyState;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, Mutex, RwLock};
-use tokio_tungstenite::accept_async;
+use tokio_tungstenite::{accept_async, WebSocketStream};
 use tokio_tungstenite::tungstenite::protocol::Message;
+
+type WsWriter = SplitSink<WebSocketStream<TcpStream>, Message>;
+
+async fn send_resp(writer: &Arc<Mutex<WsWriter>>, resp: &ProxyResponse) -> bool {
+    if let Ok(json_str) = serde_json::to_string(resp) {
+        let mut w = writer.lock().await;
+        w.send(Message::Text(json_str)).await.is_ok()
+    } else {
+        false
+    }
+}
 
 pub async fn handle_client_connection(
     stream: TcpStream,
@@ -42,11 +53,8 @@ pub async fn handle_client_connection(
                 };
 
                 if should_send {
-                    if let Ok(json_str) = serde_json::to_string(&event) {
-                        let mut w = gw_writer.lock().await;
-                        if w.send(Message::Text(json_str)).await.is_err() {
-                            break;
-                        }
+                    if !send_resp(&gw_writer, &event).await {
+                        break;
                     }
                 }
             }
@@ -62,55 +70,33 @@ pub async fn handle_client_connection(
                     if let Ok(action) = serde_json::from_str::<ProxyAction>(&text) {
                         match action {
                             ProxyAction::SetQueueMode { enabled } => {
-                                *state.queue_mode_enabled.write().await = enabled;
+                                state.set_queue_mode(enabled).await;
                                 if !enabled {
-                                    let mut map = state.active_queue.write().await;
-                                    for q in map.values_mut() {
-                                        q.clear();
-                                    }
-                                    let sync_resp = ProxyResponse::QueueSync { queue: Vec::new() };
-                                    let resp_json = serde_json::to_string(&sync_resp).unwrap();
-                                    let mut w = write_arc.lock().await;
-                                    let _ = w.send(Message::Text(resp_json)).await;
+                                    send_resp(&write_arc, &ProxyResponse::QueueSync { queue: Vec::new() }).await;
                                 }
                             }
                             ProxyAction::UpdateHardwareDelay { delay_ms } => {
-                                *state.hardware_delay_ms.write().await = delay_ms;
+                                state.set_hardware_delay(delay_ms).await;
                             }
                             ProxyAction::ClearQueue { channel_id } => {
-                                let mut map = state.active_queue.write().await;
-                                if let Some(q) = map.get_mut(&channel_id) {
-                                    q.clear();
-                                }
-                                let sync_resp = ProxyResponse::QueueSync { queue: Vec::new() };
-                                let resp_json = serde_json::to_string(&sync_resp).unwrap();
-                                let mut w = write_arc.lock().await;
-                                let _ = w.send(Message::Text(resp_json)).await;
+                                let cleared = state.clear_queue(&channel_id).await;
+                                send_resp(&write_arc, &ProxyResponse::QueueSync { queue: cleared }).await;
                             }
                             ProxyAction::EnqueueNumber { channel_id, item } => {
-                                let mut map = state.active_queue.write().await;
-                                let q = map.entry(channel_id.clone()).or_insert_with(Vec::new);
-                                q.push(item);
-
-                                let sync_resp = ProxyResponse::QueueSync { queue: q.clone() };
-                                let resp_json = serde_json::to_string(&sync_resp).unwrap();
-                                let mut w = write_arc.lock().await;
-                                let _ = w.send(Message::Text(resp_json)).await;
+                                let updated_q = state.enqueue_item(&channel_id, item).await;
+                                send_resp(&write_arc, &ProxyResponse::QueueSync { queue: updated_q }).await;
                             }
                             ProxyAction::SubscribeChannel { channel_id } => {
                                 *subscribed_cid.write().await = channel_id;
                             }
                             ProxyAction::Ping => {
-                                let resp = serde_json::to_string(&ProxyResponse::Pong).unwrap();
-                                let mut w = write_arc.lock().await;
-                                let _ = w.send(Message::Text(resp)).await;
+                                send_resp(&write_arc, &ProxyResponse::Pong).await;
                             }
                             ProxyAction::SendMessage { channel_id, content, nonce } => {
-                                let ack_json = serde_json::to_string(&ProxyResponse::Ack { nonce: nonce.clone() }).unwrap();
                                 let w_arc_ack = Arc::clone(&write_arc);
+                                let ack_nonce = nonce.clone();
                                 tokio::spawn(async move {
-                                    let mut w = w_arc_ack.lock().await;
-                                    let _ = w.send(Message::Text(ack_json)).await;
+                                    send_resp(&w_arc_ack, &ProxyResponse::Ack { nonce: ack_nonce }).await;
                                 });
 
                                 let url = format!("https://discord.com/api/v10/channels/{}/messages", channel_id);
@@ -148,10 +134,7 @@ pub async fn handle_client_connection(
                                         },
                                     };
 
-                                    if let Ok(json_resp) = serde_json::to_string(&response) {
-                                        let mut w = w_arc_res.lock().await;
-                                        let _ = w.send(Message::Text(json_resp)).await;
-                                    }
+                                    send_resp(&w_arc_res, &response).await;
                                 });
                             }
                             ProxyAction::SendTyping { channel_id } => {
@@ -184,10 +167,7 @@ pub async fn handle_client_connection(
                                                 channel_id,
                                                 messages: json_data,
                                             };
-                                            if let Ok(json_resp) = serde_json::to_string(&resp_struct) {
-                                                let mut w = w_arc_hist.lock().await;
-                                                let _ = w.send(Message::Text(json_resp)).await;
-                                            }
+                                            send_resp(&w_arc_hist, &resp_struct).await;
                                         }
                                     }
                                 });
