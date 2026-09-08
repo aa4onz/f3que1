@@ -7,12 +7,10 @@ use tokio::sync::broadcast;
 /// Rules governing when a stealth queue reaction should trigger:
 /// 1. Queue Mode must be active.
 /// 2. Zero check: If top item number is 0 (or content "0"), clear entire queue and do not send.
-/// 3. Queue size requirement: Queue must contain AT LEAST 2 items (queue size > 1).
-/// 4. First number added when queue was empty rule:
-///    If the top item was added when queue was empty (`was_empty == true`), it bypasses all sender/bot/response
-///    filters and triggers immediately as soon as queue size > 1 (without waiting for external messages).
-/// 5. Standard rules for subsequent items (`was_empty == false`):
-///    - Requires an incoming message event (`message_data` is present).
+/// 3. Size check: First item (`was_empty == true`) requires q.len() > 1 to initiate.
+///    Subsequent items (`was_empty == false`) allow q.len() >= 1 to drain down to 0.
+/// 4. Subsequent items (`was_empty == false`):
+///    - Triggers on incoming message event or latest channel message.
 ///    - Self message check: Never trigger on own messages.
 ///    - Bot check: If sender is a bot, cancel and clear queue immediately.
 pub async fn evaluate_and_trigger_queue(
@@ -52,11 +50,16 @@ pub async fn evaluate_and_trigger_queue(
         }
     };
 
-    // Rule 3: Queue size requirement: Queue size must be > 1 (at least 2 items in queue)
+    // Rule 3: Queue size check
     {
         let map = state.active_queue.read().await;
         if let Some(q) = map.get(channel_id) {
-            if q.len() <= 1 {
+            if q.is_empty() {
+                return;
+            }
+            // First item when empty requires > 1 item to start sequence.
+            // Subsequent items process as long as q.len() >= 1.
+            if is_first_when_empty && q.len() <= 1 {
                 return;
             }
         } else {
@@ -64,24 +67,50 @@ pub async fn evaluate_and_trigger_queue(
         }
     }
 
-    // If was_empty == true, bypass sender filter, bot checks, and waiting for other responses.
+    // If was_empty == true, bypass sender filter, bot checks, and waiting for incoming messages.
     if !is_first_when_empty {
-        // Standard Rules for subsequent items require an incoming message event
+        // Fetch last message from Discord API if no direct gateway event was passed
+        let fetched_last_msg;
         let data = match message_data {
             Some(d) => d,
-            None => return,
+            None => {
+                let url = format!(
+                    "https://discord.com/api/v10/channels/{}/messages?limit=1",
+                    channel_id
+                );
+                let res = http_client
+                    .get(&url)
+                    .header("Authorization", &discord_token)
+                    .send()
+                    .await;
+
+                if let Ok(resp) = res {
+                    if let Ok(arr) = resp.json::<serde_json::Value>().await {
+                        if let Some(first_msg) = arr.get(0) {
+                            fetched_last_msg = first_msg.clone();
+                            &fetched_last_msg
+                        } else {
+                            return;
+                        }
+                    } else {
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            }
         };
 
         let author_id = data["author"]["id"].as_str().unwrap_or("");
         let author_uname = data["author"]["username"].as_str().unwrap_or("");
         let is_bot = data["author"]["bot"].as_bool().unwrap_or(false);
 
-        // Rule 5a: Cannot trigger on own message
+        // Cannot trigger on own message
         if state.is_self_author(author_id, author_uname).await {
             return;
         }
 
-        // Rule 5b: If message sender is a bot -> clear queue immediately
+        // If message sender is a bot -> clear queue immediately
         if is_bot {
             let cleared = state.clear_queue(channel_id).await;
             let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
