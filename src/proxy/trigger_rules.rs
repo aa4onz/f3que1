@@ -1,4 +1,4 @@
-use crate::models::{ProxyResponse, QueuedItem};
+use crate::models::ProxyResponse;
 use crate::proxy::queue::execute_queued_reaction;
 use crate::proxy::state::ProxyState;
 use std::sync::Arc;

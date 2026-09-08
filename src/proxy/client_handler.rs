@@ -1,7 +1,7 @@
 use crate::models::{ProxyAction, ProxyResponse};
 use crate::proxy::actions::{handle_action, send_resp};
 use crate::proxy::state::ProxyState;
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, Mutex, RwLock};

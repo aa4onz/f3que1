@@ -6,13 +6,11 @@ pub fn parse_number_text(text: &str) -> Option<(i64, String)> {
     }
 
     let mut num_chars = String::new();
-    let mut prefix_len = 0;
 
-    for (i, c) in text.char_indices() {
+    for (_i, c) in text.char_indices() {
         if c.is_ascii_digit() {
             num_chars.push(c);
         } else if num_chars.is_empty() && (c == ' ' || c == '_') {
-            prefix_len = i + c.len_utf8();
             continue;
         } else {
             break;
