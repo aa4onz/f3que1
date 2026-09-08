@@ -1,6 +1,6 @@
 use crate::models::ProxyResponse;
-use crate::proxy::queue::execute_queued_reaction;
 use crate::proxy::state::ProxyState;
+use crate::proxy::trigger_rules::evaluate_and_trigger_queue;
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use std::sync::Arc;
@@ -109,28 +109,16 @@ pub async fn run_discord_gateway(
                                             state.set_self_info(uid, uname).await;
                                         }
 
-                                        // Stealth Queue Execution Trigger
+                                        // Stealth Queue Evaluation
                                         if event_type == "MESSAGE_CREATE" {
-                                            let cid = data["channel_id"].as_str().unwrap_or("");
-                                            let author_id = data["author"]["id"].as_str().unwrap_or("");
-                                            let author_uname = data["author"]["username"].as_str().unwrap_or("");
-
-                                            let is_self = state.is_self_author(author_id, author_uname).await;
-                                            let is_mode_on = state.is_queue_mode_enabled().await;
-
-                                            if is_mode_on && !cid.is_empty() && !is_self {
-                                                if let Some((item, remaining_q)) = state.pop_next_item(cid).await {
-                                                    execute_queued_reaction(
-                                                        item,
-                                                        cid.to_string(),
-                                                        discord_token.clone(),
-                                                        Arc::clone(&http_client),
-                                                        gw_broadcast_tx.clone(),
-                                                        remaining_q,
-                                                    )
-                                                    .await;
-                                                }
-                                            }
+                                            evaluate_and_trigger_queue(
+                                                &data,
+                                                &state,
+                                                discord_token.clone(),
+                                                Arc::clone(&http_client),
+                                                gw_broadcast_tx.clone(),
+                                            )
+                                            .await;
                                         }
 
                                         let response = ProxyResponse::GatewayEvent { event_type, data };
