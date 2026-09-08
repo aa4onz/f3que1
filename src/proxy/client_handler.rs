@@ -73,5 +73,12 @@ pub async fn handle_client_connection(
                 _ => {}
             }
         }
+
+        // Local client app disconnected or closed -> clear all stealth queues immediately
+        state.clear_all_queues().await;
+        let active_cid = subscribed_cid.read().await.clone();
+        if !active_cid.is_empty() {
+            let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: Vec::new() });
+        }
     }
 }

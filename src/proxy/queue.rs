@@ -1,4 +1,5 @@
 use crate::models::{QueuedItem, ProxyResponse};
+use crate::proxy::state::ProxyState;
 use crate::proxy::utils::generate_snowflake_nonce;
 use rand::Rng;
 use std::sync::Arc;
@@ -12,6 +13,7 @@ pub async fn execute_queued_reaction(
     http_client: Arc<reqwest::Client>,
     gw_broadcast_tx: broadcast::Sender<ProxyResponse>,
     remaining_queue: Vec<QueuedItem>,
+    state: ProxyState,
 ) {
     // Notify connected client of the updated queue state immediately
     let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync {
@@ -30,12 +32,23 @@ pub async fn execute_queued_reaction(
             "nonce": nonce
         });
 
-        let _ = http_client
+        let res = http_client
             .post(&msg_url)
             .header("Authorization", &discord_token)
             .header("Content-Type", "application/json")
             .json(&payload)
             .send()
             .await;
+
+        // If message fails (rate limited 429, rejected, network error, etc.), clear queue immediately
+        let is_success = match res {
+            Ok(resp) => resp.status().is_success(),
+            Err(_) => false,
+        };
+
+        if !is_success {
+            let cleared = state.clear_queue(&channel_id).await;
+            let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
+        }
     });
 }

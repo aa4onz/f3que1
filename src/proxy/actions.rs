@@ -52,6 +52,7 @@ pub async fn handle_action(
                     Arc::clone(http_client),
                     gw_broadcast_tx.clone(),
                     remaining_q,
+                    state.clone(),
                 )
                 .await;
             }
