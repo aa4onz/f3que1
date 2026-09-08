@@ -53,9 +53,12 @@ impl ProxyState {
         Vec::new()
     }
 
-    pub async fn enqueue_item(&self, channel_id: &str, item: QueuedItem) -> Vec<QueuedItem> {
+    pub async fn enqueue_item(&self, channel_id: &str, mut item: QueuedItem) -> Vec<QueuedItem> {
         let mut map = self.active_queue.write().await;
         let q = map.entry(channel_id.to_string()).or_default();
+        if q.is_empty() {
+            item.was_empty = true;
+        }
         q.push(item);
         q.clone()
     }

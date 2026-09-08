@@ -37,6 +37,7 @@ pub async fn enqueue_parsed_item(
     let queued_item = QueuedItem {
         content: text,
         number,
+        was_empty: false,
     };
 
     app.queue.push(queued_item.clone());

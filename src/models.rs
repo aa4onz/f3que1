@@ -31,6 +31,8 @@ pub struct DiscordMessage {
 pub struct QueuedItem {
     pub content: String,
     pub number: i64,
+    #[serde(default)]
+    pub was_empty: bool,
 }
 
 #[derive(Debug, Clone)]
