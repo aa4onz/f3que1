@@ -7,13 +7,13 @@ use tokio::sync::broadcast;
 /// Rules governing when a stealth queue reaction should trigger:
 /// 1. Queue Mode must be active.
 /// 2. Zero check: If top item number is 0 (or content "0"), clear entire queue and do not send.
-/// 3. First number added when queue was empty rule:
-///    If the top item was added when queue was empty (`was_empty == true`), it triggers on ANY
-///    incoming message event regardless of sender (self, bot, or other) and regardless of queue size.
-/// 4. Standard rules for subsequent items:
+/// 3. Queue size requirement: Queue must contain AT LEAST 2 items (queue size > 1).
+/// 4. First number added when queue was empty rule:
+///    If the top item was added when queue was empty (`was_empty == true`), it bypasses sender filters
+///    (does not care if sender is self, bot, or other) as long as queue size is > 1.
+/// 5. Standard rules for subsequent items (`was_empty == false`):
 ///    - Self message check: Never trigger on own messages.
 ///    - Bot check: If sender is a bot, cancel and clear queue immediately.
-///    - Queue size requirement: Queue must contain AT LEAST 2 items.
 pub async fn evaluate_and_trigger_queue(
     data: &serde_json::Value,
     state: &ProxyState,
@@ -55,30 +55,30 @@ pub async fn evaluate_and_trigger_queue(
         }
     };
 
+    // Rule 3: Queue size requirement: Queue size must be > 1 (at least 2 items in queue)
+    {
+        let map = state.active_queue.read().await;
+        if let Some(q) = map.get(cid) {
+            if q.len() <= 1 {
+                return;
+            }
+        } else {
+            return;
+        }
+    }
+
     if !is_first_when_empty {
-        // Standard Rules:
-        // Rule 4a: Cannot trigger on own message
+        // Standard Rules for subsequent items:
+        // Rule 5a: Cannot trigger on own message
         if state.is_self_author(author_id, author_uname).await {
             return;
         }
 
-        // Rule 4b: If message sender is a bot -> clear queue immediately
+        // Rule 5b: If message sender is a bot -> clear queue immediately
         if is_bot {
             let cleared = state.clear_queue(cid).await;
             let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
             return;
-        }
-
-        // Rule 4c: Must have >= 2 items in queue
-        {
-            let map = state.active_queue.read().await;
-            if let Some(q) = map.get(cid) {
-                if q.len() < 2 {
-                    return;
-                }
-            } else {
-                return;
-            }
         }
     }
 
