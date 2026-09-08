@@ -1,8 +1,7 @@
 use crate::models::ProxyResponse;
+use crate::proxy::queue::execute_queued_reaction;
 use crate::proxy::state::ProxyState;
-use crate::proxy::utils::generate_snowflake_nonce;
 use futures_util::{SinkExt, StreamExt};
-use rand::Rng;
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
@@ -110,7 +109,7 @@ pub async fn run_discord_gateway(
                                             state.set_self_info(uid, uname).await;
                                         }
 
-                                        // Gate Trigger: Instant execution with realistic human reaction delay
+                                        // Stealth Queue Execution Trigger
                                         if event_type == "MESSAGE_CREATE" {
                                             let cid = data["channel_id"].as_str().unwrap_or("");
                                             let author_id = data["author"]["id"].as_str().unwrap_or("");
@@ -121,37 +120,15 @@ pub async fn run_discord_gateway(
 
                                             if is_mode_on && !cid.is_empty() && !is_self {
                                                 if let Some((item, remaining_q)) = state.pop_next_item(cid).await {
-                                                    let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync {
-                                                        queue: remaining_q,
-                                                    });
-
-                                                    let token_sub = discord_token.clone();
-                                                    let client_sub = Arc::clone(&http_client);
-                                                    let cid_sub = cid.to_string();
-
-                                                    // Humanized reaction delay: random 200ms - 300ms delay before releasing item
-                                                    tokio::spawn(async move {
-                                                        let delay_ms = rand::thread_rng().gen_range(200..=300);
-                                                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-
-                                                        let msg_url = format!(
-                                                            "https://discord.com/api/v10/channels/{}/messages",
-                                                            cid_sub
-                                                        );
-                                                        let nonce = generate_snowflake_nonce();
-                                                        let payload = serde_json::json!({
-                                                            "content": item.content,
-                                                            "nonce": nonce
-                                                        });
-
-                                                        let _ = client_sub
-                                                            .post(&msg_url)
-                                                            .header("Authorization", &token_sub)
-                                                            .header("Content-Type", "application/json")
-                                                            .json(&payload)
-                                                            .send()
-                                                            .await;
-                                                    });
+                                                    execute_queued_reaction(
+                                                        item,
+                                                        cid.to_string(),
+                                                        discord_token.clone(),
+                                                        Arc::clone(&http_client),
+                                                        gw_broadcast_tx.clone(),
+                                                        remaining_q,
+                                                    )
+                                                    .await;
                                                 }
                                             }
                                         }
