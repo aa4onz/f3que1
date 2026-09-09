@@ -10,6 +10,7 @@ pub struct ProxyState {
     pub hardware_delay_ms: Arc<RwLock<u64>>,
     pub self_user_id: Arc<RwLock<String>>,
     pub self_username: Arc<RwLock<String>>,
+    pub last_processed_message_id: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl ProxyState {
@@ -20,6 +21,7 @@ impl ProxyState {
             hardware_delay_ms: Arc::new(RwLock::new(45u64)),
             self_user_id: Arc::new(RwLock::new(String::new())),
             self_username: Arc::new(RwLock::new(String::new())),
+            last_processed_message_id: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -87,5 +89,25 @@ impl ProxyState {
         let my_id = self.self_user_id.read().await;
         let my_uname = self.self_username.read().await;
         (!my_id.is_empty() && author_id == *my_id) || (!my_uname.is_empty() && author_uname == *my_uname)
+    }
+
+    pub async fn is_message_already_processed(&self, channel_id: &str, msg_id: &str) -> bool {
+        if msg_id.is_empty() {
+            return false;
+        }
+        let map = self.last_processed_message_id.read().await;
+        if let Some(last_id) = map.get(channel_id) {
+            last_id == msg_id
+        } else {
+            false
+        }
+    }
+
+    pub async fn set_last_processed_message_id(&self, channel_id: &str, msg_id: &str) {
+        if msg_id.is_empty() {
+            return;
+        }
+        let mut map = self.last_processed_message_id.write().await;
+        map.insert(channel_id.to_string(), msg_id.to_string());
     }
 }

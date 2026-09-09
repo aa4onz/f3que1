@@ -12,6 +12,7 @@ use tokio::sync::broadcast;
 ///    - Triggers on incoming message event or latest channel message.
 ///    - Self message check: Never trigger on own messages.
 ///    - Bot check: If sender is a bot, cancel and clear queue immediately.
+///    - Duplicate check: Ignore messages that have already triggered a reaction.
 pub async fn evaluate_and_trigger_queue(
     message_data: Option<&serde_json::Value>,
     channel_id: &str,
@@ -86,6 +87,11 @@ pub async fn evaluate_and_trigger_queue(
         }
     };
 
+    let msg_id = data["id"].as_str().unwrap_or("");
+    if !msg_id.is_empty() && state.is_message_already_processed(channel_id, msg_id).await {
+        return;
+    }
+
     let author_id = data["author"]["id"].as_str().unwrap_or("");
     let author_uname = data["author"]["username"].as_str().unwrap_or("");
     let is_bot = data["author"]["bot"].as_bool().unwrap_or(false);
@@ -100,6 +106,11 @@ pub async fn evaluate_and_trigger_queue(
         let cleared = state.clear_queue(channel_id).await;
         let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
         return;
+    }
+
+    // Mark message ID as processed prior to popping/sending to prevent double-sends
+    if !msg_id.is_empty() {
+        state.set_last_processed_message_id(channel_id, msg_id).await;
     }
 
     // Trigger exactly ONE next item and preserve remaining queue
