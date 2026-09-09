@@ -233,20 +233,20 @@ impl crate::app::state::AppState {
                 self.last_keystroke_time = Some(now);
 
                 match k.code {
-                    KeyCode::F(6) => {
-                        let _ = tx.send(AppEvent::ToggleQueueMode).await;
-                    }
-                    KeyCode::F(7) => {
-                        self.queue.clear();
-                        let _ = tx.send(AppEvent::ClearQueue).await;
-                    }
-                    KeyCode::F(9) => {
+                    KeyCode::F(1) => {
                         let _ = tx.send(AppEvent::TriggerTopQueue).await;
                     }
                     KeyCode::F(2) => {
-                        self.show_timestamp = !self.show_timestamp;
+                        let _ = tx.send(AppEvent::ToggleQueueMode).await;
                     }
                     KeyCode::F(3) => {
+                        self.queue.clear();
+                        let _ = tx.send(AppEvent::ClearQueue).await;
+                    }
+                    KeyCode::F(6) => {
+                        self.show_timestamp = !self.show_timestamp;
+                    }
+                    KeyCode::F(7) => {
                         self.show_latency = !self.show_latency;
                     }
                     KeyCode::F(4) => {

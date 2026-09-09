@@ -103,9 +103,9 @@ pub fn render_messages<'a>(
         ListItem::new(vec![header_line, content_line])
     }).collect();
 
-    let time_status = if show_time { "F2: Hide Time" } else { "F2: Show Time" };
-    let lat_status = if show_lat { "F3: Hide Latency" } else { "F3: Show Latency" };
-    let title_text = format!(" Messages [{} | {} | F5/Ctrl+G: Channel | F6/Ctrl+Q: Queue | F7/Ctrl+C: Clear Queue | F9: Trigger Top] ", time_status, lat_status);
+    let time_status = if show_time { "F6: Hide Time" } else { "F6: Show Time" };
+    let lat_status = if show_lat { "F7: Hide Latency" } else { "F7: Show Latency" };
+    let title_text = format!(" Messages [{} | {} | F5/Ctrl+G: Channel | F2/Ctrl+Q: Queue | F3/Ctrl+C: Clear Queue | F1: Trigger Top] ", time_status, lat_status);
 
     List::new(msgs)
         .block(Block::default()
