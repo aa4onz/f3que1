@@ -38,14 +38,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut url_input = String::new();
 
         if is_proxy_mode {
-            if std::path::Path::new(".proxy_cache").exists() {
+            println!("\nSelect Remote Proxy Profile:");
+            println!("[1] Remote Profile 1");
+            println!("[2] Remote Profile 2");
+            println!("[3] Remote Profile 3");
+            print!("Select Profile [1, 2, or 3]: ");
+            io::stdout().flush()?;
+
+            let mut profile_choice = String::new();
+            io::stdin().read_line(&mut profile_choice)?;
+            let profile_num = profile_choice.trim();
+
+            let cache_filename = format!(".proxy_cache_profile_{}", profile_num);
+
+            if std::path::Path::new(&cache_filename).exists() {
+                token_or_proxy = std::fs::read_to_string(&cache_filename)?.trim().to_string();
+            } else if std::path::Path::new(".proxy_cache").exists() && (profile_num != "1" && profile_num != "2" && profile_num != "3") {
                 token_or_proxy = std::fs::read_to_string(".proxy_cache")?.trim().to_string();
             } else {
-                print!("Enter Remote Proxy WebSocket URL (e.g. wss://...): ");
+                print!("Enter Remote Proxy WebSocket URL for Profile {} (e.g. wss://...): ", profile_num);
                 io::stdout().flush()?;
                 io::stdin().read_line(&mut token_or_proxy)?;
                 token_or_proxy = sanitize_proxy_url(&token_or_proxy);
-                std::fs::write(".proxy_cache", &token_or_proxy)?;
+                std::fs::write(&cache_filename, &token_or_proxy)?;
             }
             token_or_proxy = sanitize_proxy_url(&token_or_proxy);
         } else {
