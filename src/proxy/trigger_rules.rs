@@ -7,10 +7,8 @@ use tokio::sync::broadcast;
 /// Rules governing when a stealth queue reaction should trigger:
 /// 1. Queue Mode must be active.
 /// 2. Zero check: If top item number is 0 (or content "0"), clear entire queue and do not send.
-/// 3. Size check:
-///    - First item (`was_empty == true`): Requires queue size > 1 (at least 2 items queued) to initiate.
-///    - Subsequent items (`was_empty == false`): Requires queue size >= 1 to process.
-/// 4. Subsequent items (`was_empty == false`):
+/// 3. Size check: Requires queue size >= 1 to process.
+/// 4. Sender check:
 ///    - Triggers on incoming message event or latest channel message.
 ///    - Self message check: Never trigger on own messages.
 ///    - Bot check: If sender is a bot, cancel and clear queue immediately.
@@ -31,7 +29,8 @@ pub async fn evaluate_and_trigger_queue(
         return;
     }
 
-    let is_first_when_empty = {
+    // Rule 2 & Rule 3: Check queue existence and zero check
+    {
         let map = state.active_queue.read().await;
         if let Some(q) = map.get(channel_id) {
             if let Some(top_item) = q.first() {
@@ -42,24 +41,7 @@ pub async fn evaluate_and_trigger_queue(
                     let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
                     return;
                 }
-                top_item.was_empty
             } else {
-                return;
-            }
-        } else {
-            return;
-        }
-    };
-
-    // Rule 3: Queue size check
-    {
-        let map = state.active_queue.read().await;
-        if let Some(q) = map.get(channel_id) {
-            if q.is_empty() {
-                return;
-            }
-            // First item when empty requires > 1 item to start sequence.
-            if is_first_when_empty && q.len() <= 1 {
                 return;
             }
         } else {
@@ -67,55 +49,52 @@ pub async fn evaluate_and_trigger_queue(
         }
     }
 
-    // If was_empty == true, bypass sender filter, bot checks, and waiting for incoming messages.
-    if !is_first_when_empty {
-        // Fetch last message from Discord API if no direct gateway event was passed
-        let fetched_last_msg;
-        let data = match message_data {
-            Some(d) => d,
-            None => {
-                let url = format!(
-                    "https://discord.com/api/v10/channels/{}/messages?limit=1",
-                    channel_id
-                );
-                let res = http_client
-                    .get(&url)
-                    .header("Authorization", &discord_token)
-                    .send()
-                    .await;
+    // Fetch last message from Discord API if no direct gateway event was passed
+    let fetched_last_msg;
+    let data = match message_data {
+        Some(d) => d,
+        None => {
+            let url = format!(
+                "https://discord.com/api/v10/channels/{}/messages?limit=1",
+                channel_id
+            );
+            let res = http_client
+                .get(&url)
+                .header("Authorization", &discord_token)
+                .send()
+                .await;
 
-                if let Ok(resp) = res {
-                    if let Ok(arr) = resp.json::<serde_json::Value>().await {
-                        if let Some(first_msg) = arr.get(0) {
-                            fetched_last_msg = first_msg.clone();
-                            &fetched_last_msg
-                        } else {
-                            return;
-                        }
+            if let Ok(resp) = res {
+                if let Ok(arr) = resp.json::<serde_json::Value>().await {
+                    if let Some(first_msg) = arr.get(0) {
+                        fetched_last_msg = first_msg.clone();
+                        &fetched_last_msg
                     } else {
                         return;
                     }
                 } else {
                     return;
                 }
+            } else {
+                return;
             }
-        };
-
-        let author_id = data["author"]["id"].as_str().unwrap_or("");
-        let author_uname = data["author"]["username"].as_str().unwrap_or("");
-        let is_bot = data["author"]["bot"].as_bool().unwrap_or(false);
-
-        // Cannot trigger on own message
-        if state.is_self_author(author_id, author_uname).await {
-            return;
         }
+    };
 
-        // If message sender is a bot -> clear queue immediately
-        if is_bot {
-            let cleared = state.clear_queue(channel_id).await;
-            let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
-            return;
-        }
+    let author_id = data["author"]["id"].as_str().unwrap_or("");
+    let author_uname = data["author"]["username"].as_str().unwrap_or("");
+    let is_bot = data["author"]["bot"].as_bool().unwrap_or(false);
+
+    // Rule 4: Cannot trigger on own message
+    if state.is_self_author(author_id, author_uname).await {
+        return;
+    }
+
+    // Rule 4: If message sender is a bot -> clear queue immediately
+    if is_bot {
+        let cleared = state.clear_queue(channel_id).await;
+        let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
+        return;
     }
 
     // Trigger exactly ONE next item and preserve remaining queue
