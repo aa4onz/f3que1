@@ -11,7 +11,28 @@ use tokio::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    dotenvy::dotenv().ok();
+    // Determine profile from command line args (e.g. `cargo run --bin remote_proxy -- 1` or `cargo run --bin remote_proxy --profile 2`) or PROFILE env var
+    let args: Vec<String> = env::args().collect();
+    let profile_num = if args.len() > 1 {
+        let arg = &args[1];
+        if arg == "--profile" && args.len() > 2 {
+            args[2].clone()
+        } else {
+            arg.trim_start_matches('-').to_string()
+        }
+    } else {
+        env::var("PROFILE").unwrap_or_else(|_| "1".to_string())
+    };
+
+    let profile_env = format!(".env.profile_{}", profile_num);
+    if std::path::Path::new(&profile_env).exists() {
+        dotenvy::from_filename(&profile_env).ok();
+        println!("Loaded configuration from {}", profile_env);
+    } else {
+        dotenvy::dotenv().ok();
+        println!("Loaded configuration from .env");
+    }
+
     let discord_token = env::var("DISCORD_TOKEN")
         .expect("DISCORD_TOKEN environment variable must be set on the proxy server");
 
@@ -19,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = format!("0.0.0.0:{}", port);
 
     let listener = TcpListener::bind(&addr).await?;
-    println!("Remote stealth proxy server listening on ws://{}", addr);
+    println!("Remote stealth proxy server (Profile {}) listening on ws://{}", profile_num, addr);
 
     let (gw_tx, _) = broadcast::channel::<ProxyResponse>(512);
 
