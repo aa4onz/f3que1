@@ -136,6 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 | AppEvent::FetchChannelHistory(_) 
                 | AppEvent::EnqueueNumberItem(_) 
                 | AppEvent::UpdateHardwareDelay(_)
+                | AppEvent::UpdateReactionDelayMode(_)
                 | AppEvent::TriggerTopQueue => {
                     let n_tx = net_tx.clone();
                     let ev_clone = event.clone();
@@ -164,6 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     | AppEvent::FetchChannelHistory(_) 
                     | AppEvent::EnqueueNumberItem(_) 
                     | AppEvent::UpdateHardwareDelay(_)
+                    | AppEvent::UpdateReactionDelayMode(_)
                     | AppEvent::TriggerTopQueue => {
                         let n_tx = net_tx.clone();
                         let ev_clone = next_event.clone();

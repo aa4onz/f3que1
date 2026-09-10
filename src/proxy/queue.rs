@@ -1,4 +1,4 @@
-use crate::models::{QueuedItem, ProxyResponse};
+use crate::models::{QueuedItem, ProxyResponse, ReactionDelayMode};
 use crate::proxy::state::ProxyState;
 use crate::proxy::utils::generate_snowflake_nonce;
 use rand::Rng;
@@ -20,10 +20,18 @@ pub async fn execute_queued_reaction(
         queue: remaining_queue,
     });
 
-    // Humanized reaction delay (200ms - 300ms) before sending payload
+    let delay_mode = state.get_reaction_delay_mode().await;
+
     tokio::spawn(async move {
-        let delay_ms = rand::thread_rng().gen_range(200..=300);
-        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        let delay_ms = match delay_mode {
+            ReactionDelayMode::Normal => rand::thread_rng().gen_range(200..=300),
+            ReactionDelayMode::Fast => rand::thread_rng().gen_range(0..=200),
+            ReactionDelayMode::Instant => 0,
+        };
+
+        if delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        }
 
         let msg_url = format!("https://discord.com/api/v10/channels/{}/messages", channel_id);
         let nonce = generate_snowflake_nonce();

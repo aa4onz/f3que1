@@ -1,16 +1,22 @@
 // src/tui/components.rs
-use crate::models::{DiscordMessage, MessageStatus, QueuedItem};
+use crate::models::{DiscordMessage, MessageStatus, QueuedItem, ReactionDelayMode};
 use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
-pub fn render_queue_sidebar<'a>(queue_mode: bool, queue: &[QueuedItem], hw_delay: u64) -> List<'a> {
+pub fn render_queue_sidebar<'a>(queue_mode: bool, queue: &[QueuedItem], hw_delay: u64, delay_mode: ReactionDelayMode) -> List<'a> {
     let mode_span = if queue_mode {
         Span::styled("ENABLED", Style::default().fg(Color::Green))
     } else {
         Span::styled("DISABLED", Style::default().fg(Color::Red))
+    };
+
+    let delay_str = match delay_mode {
+        ReactionDelayMode::Normal => "200-300ms",
+        ReactionDelayMode::Fast => "0-200ms",
+        ReactionDelayMode::Instant => "0ms",
     };
 
     let mut items: Vec<ListItem> = Vec::new();
@@ -23,6 +29,11 @@ pub fn render_queue_sidebar<'a>(queue_mode: bool, queue: &[QueuedItem], hw_delay
     items.push(ListItem::new(Line::from(vec![
         Span::raw("HW Delay: "),
         Span::styled(format!("{}ms", hw_delay), Style::default().fg(Color::Cyan)),
+    ])));
+
+    items.push(ListItem::new(Line::from(vec![
+        Span::raw("Rx Delay (F10): "),
+        Span::styled(delay_str, Style::default().fg(Color::Magenta)),
     ])));
 
     items.push(ListItem::new(Line::from(Span::styled("────────────────────", Style::default().fg(Color::DarkGray)))));
@@ -105,7 +116,7 @@ pub fn render_messages<'a>(
 
     let time_status = if show_time { "F6: Hide Time" } else { "F6: Show Time" };
     let lat_status = if show_lat { "F7: Hide Latency" } else { "F7: Show Latency" };
-    let title_text = format!(" Messages [{} | {} | F5/Ctrl+G: Channel | F2/Ctrl+Q: Queue | F3/Ctrl+C: Clear Queue | F1: Trigger Top] ", time_status, lat_status);
+    let title_text = format!(" Messages [{} | {} | F5/Ctrl+G: Channel | F2/Ctrl+Q: Queue | F3/Ctrl+C: Clear Queue | F1: Trigger Top | F10: Delay] ", time_status, lat_status);
 
     List::new(msgs)
         .block(Block::default()

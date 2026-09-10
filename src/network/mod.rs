@@ -65,6 +65,7 @@ pub fn spawn_network_handlers(
                     AppEvent::TriggerTopQueue => Some(ProxyAction::TriggerTopQueue { channel_id: active_cid }),
                     AppEvent::EnqueueNumberItem(item) => Some(ProxyAction::EnqueueNumber { channel_id: active_cid, item }),
                     AppEvent::UpdateHardwareDelay(ms) => Some(ProxyAction::UpdateHardwareDelay { delay_ms: ms }),
+                    AppEvent::UpdateReactionDelayMode(mode) => Some(ProxyAction::UpdateReactionDelayMode { mode }),
                     AppEvent::FetchChannelHistory(cid) => Some(ProxyAction::FetchHistory {
                         channel_id: cid,
                         limit: 50,
@@ -95,11 +96,11 @@ pub fn spawn_network_handlers(
                         let (write, mut read) = ws_stream.split();
                         let write_arc = Arc::new(Mutex::new(write));
 
-                        // 1. Initial Handshake & Resync current channel, queue mode, and hardware delay
+                        // 1. Initial Handshake & Resync current channel, queue mode, hardware delay, and reaction delay mode
                         let initial_cid = proxy_cid_rx.borrow().clone();
-                        let (current_q_mode, current_hw_delay) = {
+                        let (current_q_mode, current_hw_delay, current_delay_mode) = {
                             let st = app_state_conn.lock().await;
-                            (st.queue_mode, st.hardware_delay_ms)
+                            (st.queue_mode, st.hardware_delay_ms, st.reaction_delay_mode)
                         };
 
                         {
@@ -120,6 +121,11 @@ pub fn spawn_network_handlers(
                                 delay_ms: current_hw_delay,
                             }).unwrap();
                             let _ = w.send(Message::Text(delay_payload)).await;
+
+                            let reaction_delay_payload = serde_json::to_string(&ProxyAction::UpdateReactionDelayMode {
+                                mode: current_delay_mode,
+                            }).unwrap();
+                            let _ = w.send(Message::Text(reaction_delay_payload)).await;
                         }
 
                         // Notify UI that connection is restored

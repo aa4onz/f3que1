@@ -1,6 +1,13 @@
 // src/models.rs
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ReactionDelayMode {
+    Normal,  // 200ms - 300ms
+    Fast,    // 0ms - 200ms
+    Instant, // 0ms
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Channel {
     pub id: String,
@@ -59,6 +66,7 @@ pub enum AppEvent {
     UpdateQueueState(Vec<QueuedItem>),
     EnqueueNumberItem(QueuedItem),
     UpdateHardwareDelay(u64),
+    UpdateReactionDelayMode(ReactionDelayMode),
 }
 
 #[derive(Serialize)]
@@ -109,6 +117,7 @@ pub enum ProxyAction {
     TriggerTopQueue { channel_id: String },
     EnqueueNumber { channel_id: String, item: QueuedItem },
     UpdateHardwareDelay { delay_ms: u64 },
+    UpdateReactionDelayMode { mode: ReactionDelayMode },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

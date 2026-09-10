@@ -1,7 +1,7 @@
 // src/app/handlers.rs
 use crate::app::queue_logic::process_queue_input;
 use crate::app::state::ActiveModal;
-use crate::models::{AppEvent, DiscordMessage, MessageStatus};
+use crate::models::{AppEvent, DiscordMessage, MessageStatus, ReactionDelayMode};
 use chrono::Local;
 use crossterm::event::{Event, KeyCode, KeyModifiers, MouseEventKind};
 use std::time::Instant;
@@ -31,6 +31,9 @@ impl crate::app::state::AppState {
             }
             AppEvent::UpdateQueueState(q) => {
                 self.queue = q;
+            }
+            AppEvent::UpdateReactionDelayMode(mode) => {
+                self.reaction_delay_mode = mode;
             }
             AppEvent::ToggleTimestamp => {
                 self.show_timestamp = !self.show_timestamp;
@@ -248,6 +251,14 @@ impl crate::app::state::AppState {
                     }
                     KeyCode::F(7) => {
                         self.show_latency = !self.show_latency;
+                    }
+                    KeyCode::F(10) => {
+                        self.reaction_delay_mode = match self.reaction_delay_mode {
+                            ReactionDelayMode::Normal => ReactionDelayMode::Fast,
+                            ReactionDelayMode::Fast => ReactionDelayMode::Instant,
+                            ReactionDelayMode::Instant => ReactionDelayMode::Normal,
+                        };
+                        let _ = tx.send(AppEvent::UpdateReactionDelayMode(self.reaction_delay_mode)).await;
                     }
                     KeyCode::F(4) => {
                         self.active_modal = ActiveModal::LogoutPrompt;

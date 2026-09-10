@@ -39,6 +39,9 @@ pub async fn handle_action(
         ProxyAction::UpdateHardwareDelay { delay_ms } => {
             state.set_hardware_delay(delay_ms).await;
         }
+        ProxyAction::UpdateReactionDelayMode { mode } => {
+            state.set_reaction_delay_mode(mode).await;
+        }
         ProxyAction::ClearQueue { channel_id } => {
             let cleared = state.clear_queue(&channel_id).await;
             send_resp(write_arc, &ProxyResponse::QueueSync { queue: cleared }).await;

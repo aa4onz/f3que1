@@ -35,6 +35,7 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
         state.queue_mode,
         &state.queue,
         state.hardware_delay_ms,
+        state.reaction_delay_mode,
     );
     f.render_widget(queue_widget, columns[0]);
 

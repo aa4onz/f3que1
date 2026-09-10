@@ -1,4 +1,4 @@
-use crate::models::QueuedItem;
+use crate::models::{QueuedItem, ReactionDelayMode};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -8,6 +8,7 @@ pub struct ProxyState {
     pub active_queue: Arc<RwLock<HashMap<String, Vec<QueuedItem>>>>,
     pub queue_mode_enabled: Arc<RwLock<bool>>,
     pub hardware_delay_ms: Arc<RwLock<u64>>,
+    pub reaction_delay_mode: Arc<RwLock<ReactionDelayMode>>,
     pub self_user_id: Arc<RwLock<String>>,
     pub self_username: Arc<RwLock<String>>,
     pub last_processed_message_id: Arc<RwLock<HashMap<String, String>>>,
@@ -19,6 +20,7 @@ impl ProxyState {
             active_queue: Arc::new(RwLock::new(HashMap::new())),
             queue_mode_enabled: Arc::new(RwLock::new(true)),
             hardware_delay_ms: Arc::new(RwLock::new(45u64)),
+            reaction_delay_mode: Arc::new(RwLock::new(ReactionDelayMode::Normal)),
             self_user_id: Arc::new(RwLock::new(String::new())),
             self_username: Arc::new(RwLock::new(String::new())),
             last_processed_message_id: Arc::new(RwLock::new(HashMap::new())),
@@ -38,6 +40,14 @@ impl ProxyState {
 
     pub async fn set_hardware_delay(&self, delay_ms: u64) {
         *self.hardware_delay_ms.write().await = delay_ms;
+    }
+
+    pub async fn set_reaction_delay_mode(&self, mode: ReactionDelayMode) {
+        *self.reaction_delay_mode.write().await = mode;
+    }
+
+    pub async fn get_reaction_delay_mode(&self) -> ReactionDelayMode {
+        *self.reaction_delay_mode.read().await
     }
 
     pub async fn clear_all_queues(&self) {
