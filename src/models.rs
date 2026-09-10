@@ -1,8 +1,9 @@
 // src/models.rs
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ReactionDelayMode {
+    #[default]
     Normal,  // 200ms - 300ms
     Fast,    // 0ms - 200ms
     Instant, // 0ms
