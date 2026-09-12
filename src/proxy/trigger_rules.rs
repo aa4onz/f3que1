@@ -2,6 +2,7 @@ use crate::models::ProxyResponse;
 use crate::proxy::queue::execute_queued_reaction;
 use crate::proxy::state::ProxyState;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast;
 
 /// Rules governing when a stealth queue reaction should trigger:
@@ -11,7 +12,7 @@ use tokio::sync::broadcast;
 /// 4. Sender check:
 ///    - Triggers on incoming message event or latest channel message.
 ///    - Self message check: Never trigger on own messages.
-///    - Bot check: If sender is a bot, cancel and clear queue immediately.
+///    - Bot check: If sender is a bot, cancel and clear queue immediately, and schedule another clear after 1 second.
 ///    - Duplicate check: Ignore messages that have already triggered a reaction.
 pub async fn evaluate_and_trigger_queue(
     message_data: Option<&serde_json::Value>,
@@ -101,10 +102,20 @@ pub async fn evaluate_and_trigger_queue(
         return;
     }
 
-    // Rule 4: If message sender is a bot -> clear queue immediately
+    // Rule 4: If message sender is a bot -> clear queue immediately & again after 1s
     if is_bot {
         let cleared = state.clear_queue(channel_id).await;
         let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
+
+        let state_clone = state.clone();
+        let channel_id_clone = channel_id.to_string();
+        let tx_clone = gw_broadcast_tx.clone();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let cleared_delayed = state_clone.clear_queue(&channel_id_clone).await;
+            let _ = tx_clone.send(ProxyResponse::QueueSync { queue: cleared_delayed });
+        });
         return;
     }
 
