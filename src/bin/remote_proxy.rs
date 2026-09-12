@@ -72,7 +72,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    // Assign default port dynamically based on profile number (e.g., Profile 1 -> 8080, Profile 2 -> 8081)
+    let default_port = match profile_num.parse::<u16>() {
+        Ok(n) if n > 0 => (8080 + n - 1).to_string(),
+        _ => "8080".to_string(),
+    };
+
+    let port = env::var("PORT").unwrap_or(default_port);
     let addr = format!("0.0.0.0:{}", port);
 
     let listener = TcpListener::bind(&addr).await?;
