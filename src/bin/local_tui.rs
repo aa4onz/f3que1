@@ -3,6 +3,7 @@ use fast_discord_tui::models::AppEvent;
 use fast_discord_tui::network;
 use fast_discord_tui::tui;
 
+use std::env;
 use std::io::{self, Write};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
@@ -47,41 +48,89 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let mut profile_choice = String::new();
             io::stdin().read_line(&mut profile_choice)?;
-            let profile_num = profile_choice.trim();
+            let profile_num = profile_choice.trim().to_string();
+            let profile_num = if profile_num.is_empty() { "1".to_string() } else { profile_num };
+
+            // Load .env.profile_X if present
+            let profile_env = format!(".env.profile_{}", profile_num);
+            if std::path::Path::new(&profile_env).exists() {
+                dotenvy::from_filename(&profile_env).ok();
+            } else {
+                dotenvy::dotenv().ok();
+            }
 
             let cache_filename = format!(".proxy_cache_profile_{}", profile_num);
 
-            if std::path::Path::new(&cache_filename).exists() {
-                token_or_proxy = std::fs::read_to_string(&cache_filename)?.trim().to_string();
-            } else if std::path::Path::new(".proxy_cache").exists() && (profile_num != "1" && profile_num != "2" && profile_num != "3") {
-                token_or_proxy = std::fs::read_to_string(".proxy_cache")?.trim().to_string();
-            } else {
+            // Check order: 1. Environment Variable, 2. Cached file, 3. Manual User Prompt
+            if let Ok(env_proxy) = env::var("PROXY_URL").or_else(|_| env::var("REMOTE_PROXY_URL")) {
+                if !env_proxy.trim().is_empty() {
+                    token_or_proxy = env_proxy.trim().to_string();
+                    let _ = std::fs::write(&cache_filename, &token_or_proxy);
+                }
+            }
+
+            if token_or_proxy.is_empty() {
+                if std::path::Path::new(&cache_filename).exists() {
+                    token_or_proxy = std::fs::read_to_string(&cache_filename)?.trim().to_string();
+                } else if std::path::Path::new(".proxy_cache").exists() && !["1", "2", "3"].contains(&profile_num.as_str()) {
+                    token_or_proxy = std::fs::read_to_string(".proxy_cache")?.trim().to_string();
+                }
+            }
+
+            if token_or_proxy.is_empty() {
                 print!("Enter Remote Proxy WebSocket URL for Profile {} (e.g. wss://...): ", profile_num);
                 io::stdout().flush()?;
                 io::stdin().read_line(&mut token_or_proxy)?;
-                token_or_proxy = sanitize_proxy_url(&token_or_proxy);
-                std::fs::write(&cache_filename, &token_or_proxy)?;
-            }
-            token_or_proxy = sanitize_proxy_url(&token_or_proxy);
-        } else {
-            if std::path::Path::new(".token_cache").exists() {
-                token_or_proxy = std::fs::read_to_string(".token_cache")?.trim().to_string();
-            } else {
-                print!("Enter Discord Token: ");
-                io::stdout().flush()?;
-                io::stdin().read_line(&mut token_or_proxy)?;
                 token_or_proxy = token_or_proxy.trim().to_string();
-                std::fs::write(".token_cache", &token_or_proxy)?;
+                if !token_or_proxy.is_empty() {
+                    token_or_proxy = sanitize_proxy_url(&token_or_proxy);
+                    let _ = std::fs::write(&cache_filename, &token_or_proxy);
+                }
+            } else {
+                token_or_proxy = sanitize_proxy_url(&token_or_proxy);
+            }
+        } else {
+            // Direct Discord Mode
+            dotenvy::dotenv().ok();
+
+            if let Ok(env_token) = env::var("DISCORD_TOKEN") {
+                if !env_token.trim().is_empty() {
+                    token_or_proxy = env_token.trim().to_string();
+                    let _ = std::fs::write(".token_cache", &token_or_proxy);
+                }
+            }
+
+            if token_or_proxy.is_empty() {
+                if std::path::Path::new(".token_cache").exists() {
+                    token_or_proxy = std::fs::read_to_string(".token_cache")?.trim().to_string();
+                } else {
+                    print!("Enter Discord Token: ");
+                    io::stdout().flush()?;
+                    io::stdin().read_line(&mut token_or_proxy)?;
+                    token_or_proxy = token_or_proxy.trim().to_string();
+                    if !token_or_proxy.is_empty() {
+                        let _ = std::fs::write(".token_cache", &token_or_proxy);
+                    }
+                }
             }
         }
 
-        if std::path::Path::new(".channel_cache").exists() {
-            url_input = std::fs::read_to_string(".channel_cache")?.trim().to_string();
-        } else {
-            print!("Enter direct Discord Channel URL link: ");
-            io::stdout().flush()?;
-            io::stdin().read_line(&mut url_input)?;
-            url_input = url_input.trim().to_string();
+        // Channel ID resolution (Env variable -> Cache file -> Prompt)
+        if let Ok(env_cid) = env::var("TARGET_CHANNEL_ID") {
+            if !env_cid.trim().is_empty() {
+                url_input = env_cid.trim().to_string();
+            }
+        }
+
+        if url_input.is_empty() {
+            if std::path::Path::new(".channel_cache").exists() {
+                url_input = std::fs::read_to_string(".channel_cache")?.trim().to_string();
+            } else {
+                print!("Enter direct Discord Channel URL link: ");
+                io::stdout().flush()?;
+                io::stdin().read_line(&mut url_input)?;
+                url_input = url_input.trim().to_string();
+            }
         }
 
         let clean_url = url_input.trim_end_matches('/');
