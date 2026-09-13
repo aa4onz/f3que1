@@ -20,17 +20,21 @@ impl crate::app::state::AppState {
                     self.queue.clear();
                     let _ = tx.send(AppEvent::ClearQueue).await;
                 }
+                self.update_preview_typed_text();
             }
             AppEvent::ClearQueue => {
                 self.queue.clear();
+                self.update_preview_typed_text();
             }
             AppEvent::TriggerTopQueue => {
                 if !self.queue.is_empty() {
                     self.queue.remove(0);
                 }
+                self.update_preview_typed_text();
             }
             AppEvent::UpdateQueueState(q) => {
                 self.queue = q;
+                self.update_preview_typed_text();
             }
             AppEvent::UpdateReactionDelayMode(mode) => {
                 self.reaction_delay_mode = mode;
@@ -81,6 +85,7 @@ impl crate::app::state::AppState {
                     let _ = std::fs::write(".channel_cache", &new_channel_id);
                     self.messages.clear();
                     self.queue.clear();
+                    self.update_preview_typed_text();
                     let _ = tx.send(AppEvent::ClearQueue).await;
                     let _ = tx.send(AppEvent::FetchChannelHistory(new_channel_id)).await;
                 }
@@ -130,6 +135,7 @@ impl crate::app::state::AppState {
             AppEvent::GatewayClosed => {
                 // Clear queue immediately if local PC internet/gateway disconnects
                 self.queue.clear();
+                self.update_preview_typed_text();
                 let _ = tx.send(AppEvent::ClearQueue).await;
 
                 self.messages.push(DiscordMessage {
@@ -211,6 +217,7 @@ impl crate::app::state::AppState {
                 }
                 if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) && self.input_text.is_empty() {
                     self.queue.clear();
+                    self.update_preview_typed_text();
                     let _ = tx.send(AppEvent::ClearQueue).await;
                     return false;
                 }
@@ -244,6 +251,7 @@ impl crate::app::state::AppState {
                     }
                     KeyCode::F(3) => {
                         self.queue.clear();
+                        self.update_preview_typed_text();
                         let _ = tx.send(AppEvent::ClearQueue).await;
                     }
                     KeyCode::F(6) => {

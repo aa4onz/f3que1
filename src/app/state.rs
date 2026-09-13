@@ -36,6 +36,7 @@ pub struct AppState {
     pub last_keystroke_time: Option<Instant>,
     pub hardware_delay_ms: u64,
     pub reaction_delay_mode: ReactionDelayMode,
+    pub preview_typed_text: String,
 }
 
 impl AppState {
@@ -69,11 +70,21 @@ impl AppState {
             last_keystroke_time: None,
             hardware_delay_ms: 45,
             reaction_delay_mode: ReactionDelayMode::Normal,
+            preview_typed_text: String::new(),
         }
     }
 
     pub fn set_target_channel_id(&mut self, channel_id: String) {
         self.target_channel_id = channel_id.clone();
         let _ = self.channel_id_tx.send(channel_id);
+    }
+
+    pub fn update_preview_typed_text(&mut self) {
+        if !self.queue_mode || self.queue.is_empty() {
+            self.preview_typed_text.clear();
+        } else {
+            let top_content = &self.queue[0].content;
+            self.preview_typed_text = top_content.clone();
+        }
     }
 }
