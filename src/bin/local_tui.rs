@@ -182,7 +182,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut ticker = interval(Duration::from_millis(20));
             loop {
                 ticker.tick().await;
-                // Dummy terminal wake event to drive frame rendering smoothly
+                if tick_tx.send(AppEvent::Tick).await.is_err() {
+                    break;
+                }
             }
         });
 

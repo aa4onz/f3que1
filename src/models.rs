@@ -45,6 +45,7 @@ pub struct QueuedItem {
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
+    Tick,
     IncomingMessage(DiscordMessage),
     MessageSent { nonce: String, timestamp: String },
     MessageFailed { nonce: String },

@@ -14,6 +14,7 @@ impl crate::app::state::AppState {
         tx: &Sender<AppEvent>,
     ) -> bool {
         match event {
+            AppEvent::Tick => {}
             AppEvent::ToggleMode => {
                 let is_proxy = self.token.starts_with("ws://") || self.token.starts_with("wss://");
                 if is_proxy {
