@@ -129,5 +129,6 @@ pub enum ProxyResponse {
     ChannelHistory { channel_id: String, messages: serde_json::Value },
     GatewayEvent { event_type: String, data: serde_json::Value },
     QueueSync { queue: Vec<QueuedItem> },
+    QueuedMessageFailed { nonce: String, content: String, error: Option<String> },
     Pong,
 }

@@ -173,6 +173,7 @@ pub fn spawn_network_handlers(
                         let incoming_tx = worker_tx.clone();
                         let recv_cid_rx = proxy_cid_rx.clone();
                         let read_write_arc = Arc::clone(&write_arc);
+                        let state_for_user = Arc::clone(&app_state_conn);
 
                         let read_task = tokio::spawn(async move {
                             while let Some(msg_result) = read.next().await {
@@ -182,6 +183,17 @@ pub fn spawn_network_handlers(
                                             match resp {
                                                 ProxyResponse::QueueSync { queue } => {
                                                     let _ = incoming_tx.send(AppEvent::UpdateQueueState(queue)).await;
+                                                }
+                                                ProxyResponse::QueuedMessageFailed { nonce, content, .. } => {
+                                                    let my_name = state_for_user.lock().await.self_username.clone();
+                                                    let _ = incoming_tx.send(AppEvent::IncomingMessage(DiscordMessage {
+                                                        nonce: nonce.clone(),
+                                                        author: my_name,
+                                                        content,
+                                                        timestamp: Local::now().format("%H:%M:%S%.3f").to_string(),
+                                                        status: MessageStatus::Failed,
+                                                    })).await;
+                                                    let _ = incoming_tx.send(AppEvent::MessageFailed { nonce }).await;
                                                 }
                                                 ProxyResponse::Ack { nonce } => {
                                                     let _ = incoming_tx.send(AppEvent::MessageSent {

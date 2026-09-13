@@ -1,4 +1,4 @@
-use crate::models::{QueuedItem, ProxyResponse, ReactionDelayMode};
+use crate::models::{ProxyResponse, QueuedItem, ReactionDelayMode};
 use crate::proxy::state::ProxyState;
 use crate::proxy::utils::generate_snowflake_nonce;
 use rand::Rng;
@@ -48,15 +48,21 @@ pub async fn execute_queued_reaction(
             .send()
             .await;
 
-        // If message fails (rate limited 429, rejected, network error, etc.), clear queue immediately
-        let is_success = match res {
-            Ok(resp) => resp.status().is_success(),
-            Err(_) => false,
+        let (is_success, err_msg) = match res {
+            Ok(resp) if resp.status().is_success() => (true, None),
+            Ok(resp) => {
+                let err_text = resp.text().await.unwrap_or_else(|_| "Rate Limited / Rejected".to_string());
+                (false, Some(err_text))
+            }
+            Err(e) => (false, Some(e.to_string())),
         };
 
         if !is_success {
-            let cleared = state.clear_queue(&channel_id).await;
-            let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
+            let _ = gw_broadcast_tx.send(ProxyResponse::QueuedMessageFailed {
+                nonce,
+                content: item.content,
+                error: err_msg,
+            });
         }
     });
 }
