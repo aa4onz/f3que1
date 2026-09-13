@@ -12,7 +12,7 @@ use tokio::sync::broadcast;
 /// 4. Sender & Duplicate check:
 ///    - Supports both instant WebSocket event payload AND REST API fallback.
 ///    - Atomically marks message ID as processed to strictly guarantee 1 trigger per Discord message.
-///    - Bot check: If sender is a bot or webhook, cancel and clear queue immediately.
+///    - Bot check: Explicitly checks bot IDs (510016054391734273, 639599059036012605) alongside standard bot flags.
 pub async fn evaluate_and_trigger_queue(
     message_data: Option<&serde_json::Value>,
     channel_id: &str,
@@ -99,8 +99,10 @@ pub async fn evaluate_and_trigger_queue(
     let author_id = data["author"]["id"].as_str().unwrap_or("");
     let author_uname = data["author"]["username"].as_str().unwrap_or("");
 
-    // Enhanced Bot Detection
-    let is_bot = data["author"]["bot"].as_bool().unwrap_or(false)
+    // Enhanced Bot Detection with explicit Bot IDs for fast & reliable lookup
+    let is_known_bot_id = author_id == "510016054391734273" || author_id == "639599059036012605";
+    let is_bot = is_known_bot_id
+        || data["author"]["bot"].as_bool().unwrap_or(false)
         || data["webhook_id"].is_string()
         || data["type"].as_u64().map_or(false, |t| t != 0 && t != 19);
 
