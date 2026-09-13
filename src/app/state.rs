@@ -78,7 +78,7 @@ impl AppState {
             preview_typed_text: String::new(),
             simulated_target_text: String::new(),
             last_char_tick: None,
-            current_char_delay_ms: 85,
+            current_char_delay_ms: 75,
         }
     }
 
@@ -101,7 +101,7 @@ impl AppState {
             self.simulated_target_text = target.clone();
             self.preview_typed_text.clear();
             self.last_char_tick = Some(Instant::now());
-            self.current_char_delay_ms = rand::thread_rng().gen_range(80..=100);
+            self.current_char_delay_ms = rand::thread_rng().gen_range(70..=80);
         }
     }
 
@@ -121,17 +121,37 @@ impl AppState {
             };
 
             if should_advance {
-                if current_chars.is_empty() && target_chars.len() > 2 {
-                    // 1. First step: Paste everything except the last 2 digits after 80-100ms delay
-                    let paste_part: String = target_chars[..target_chars.len() - 2].iter().collect();
-                    self.preview_typed_text = paste_part;
+                if current_chars.is_empty() {
+                    // Find leading digits portion (allowing leading spaces/underscores)
+                    let mut digit_indices = Vec::new();
+                    for (i, &c) in target_chars.iter().enumerate() {
+                        if c.is_ascii_digit() {
+                            digit_indices.push(i);
+                        } else if digit_indices.is_empty() && (c == ' ' || c == '_') {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if digit_indices.len() > 2 {
+                        // Paste up to digits.len() - 2
+                        let paste_until_idx = digit_indices[digit_indices.len() - 2];
+                        let paste_part: String = target_chars[..paste_until_idx].iter().collect();
+                        self.preview_typed_text = paste_part;
+                    } else {
+                        // If 2 or fewer digits, type character by character starting from index 0
+                        let next_char = target_chars[0];
+                        self.preview_typed_text.push(next_char);
+                    }
                 } else {
-                    // 2. Next steps: Type remaining digits one by one with 80-100ms delay
+                    // Type the next remaining character individually
                     let next_char = target_chars[current_chars.len()];
                     self.preview_typed_text.push(next_char);
                 }
+
                 self.last_char_tick = Some(Instant::now());
-                self.current_char_delay_ms = rand::thread_rng().gen_range(80..=100);
+                self.current_char_delay_ms = rand::thread_rng().gen_range(70..=80);
                 return true;
             }
         }
