@@ -117,7 +117,7 @@ impl AppState {
         let current_chars: Vec<char> = self.preview_typed_text.chars().collect();
 
         if current_chars.len() < target_chars.len() {
-            let delay = self.hardware_delay_ms.max(45);
+            let delay = 100 + self.hardware_delay_ms;
             let should_advance = match self.last_char_tick {
                 Some(last) => last.elapsed().as_millis() as u64 >= delay,
                 None => true,
