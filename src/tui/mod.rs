@@ -46,13 +46,13 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
         f.render_widget(queue_widget, columns[0]);
     }
 
-    // 2. Split Right Main Area vertically into Messages List, Middle Queue Preview Box (when active), and Send Input Box
+    // 2. Split Right Main Area vertically into Messages List, Middle Simulated Input Box (when queue non-empty), and Main Input Box
     let right_workspace = if show_sidebar && !state.queue.is_empty() {
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Min(5),    // Top: Chat Messages List
-                Constraint::Length(3), // Middle: Top Queue Simulated Typing Box
+                Constraint::Length(3), // Middle: Top Queue Simulated Input Box
                 Constraint::Length(3), // Bottom: Send Message Input Box
             ])
             .split(columns[1])

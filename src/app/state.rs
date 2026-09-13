@@ -37,6 +37,8 @@ pub struct AppState {
     pub hardware_delay_ms: u64,
     pub reaction_delay_mode: ReactionDelayMode,
     pub preview_typed_text: String,
+    pub simulated_target_text: String,
+    pub last_char_tick: Option<Instant>,
 }
 
 impl AppState {
@@ -71,6 +73,8 @@ impl AppState {
             hardware_delay_ms: 45,
             reaction_delay_mode: ReactionDelayMode::Normal,
             preview_typed_text: String::new(),
+            simulated_target_text: String::new(),
+            last_char_tick: None,
         }
     }
 
@@ -82,9 +86,47 @@ impl AppState {
     pub fn update_preview_typed_text(&mut self) {
         if !self.queue_mode || self.queue.is_empty() {
             self.preview_typed_text.clear();
-        } else {
-            let top_content = &self.queue[0].content;
-            self.preview_typed_text = top_content.clone();
+            self.simulated_target_text.clear();
+            self.last_char_tick = None;
+            return;
+        }
+
+        let target = self.queue[0].content.clone();
+        if self.simulated_target_text != target {
+            self.simulated_target_text = target.clone();
+            let chars: Vec<char> = target.chars().collect();
+            let len = chars.len();
+
+            if len > 2 {
+                // Paste everything except last 2 digits/characters
+                let paste_part: String = chars[..len - 2].iter().collect();
+                self.preview_typed_text = paste_part;
+            } else {
+                self.preview_typed_text.clear();
+            }
+            self.last_char_tick = Some(Instant::now());
+        }
+    }
+
+    pub fn step_simulated_typing(&mut self) {
+        if !self.queue_mode || self.queue.is_empty() || self.simulated_target_text.is_empty() {
+            return;
+        }
+
+        if self.preview_typed_text.len() < self.simulated_target_text.len() {
+            let delay = self.hardware_delay_ms.max(45);
+            let should_advance = match self.last_char_tick {
+                Some(last) => last.elapsed().as_millis() as u64 >= delay,
+                None => true,
+            };
+
+            if should_advance {
+                let current_len = self.preview_typed_text.len();
+                if let Some(next_char) = self.simulated_target_text.chars().nth(current_len) {
+                    self.preview_typed_text.push(next_char);
+                    self.last_char_tick = Some(Instant::now());
+                }
+            }
         }
     }
 }

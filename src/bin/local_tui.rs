@@ -237,6 +237,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
+            state.step_simulated_typing();
+
             terminal.draw(|f| {
                 tui::render(f, &mut state);
             })?;

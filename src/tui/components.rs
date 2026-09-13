@@ -125,15 +125,15 @@ pub fn render_messages<'a>(
 }
 
 pub fn render_queue_preview_box<'a>(preview_text: &'a str) -> Paragraph<'a> {
-    let prompt_span = Span::styled("Top Queue (Ready): ", Style::default().fg(Color::DarkGray));
+    let prompt_span = Span::raw("> ");
     let text_span = Span::styled(
         preview_text,
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(Color::Yellow)
     );
     let line = Line::from(vec![prompt_span, text_span]);
 
     Paragraph::new(line)
-        .block(Block::default().borders(Borders::ALL).title(" Stealth Queue Simulated Input "))
+        .block(Block::default().borders(Borders::ALL))
 }
 
 pub fn render_input_box<'a>(input_text: &'a str) -> Paragraph<'a> {
