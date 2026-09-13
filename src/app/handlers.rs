@@ -245,7 +245,7 @@ impl crate::app::state::AppState {
                     let _ = tx.send(AppEvent::ClearQueue).await;
                     return false;
                 }
-                if k.code == KeyCode::CapsLock {
+                if k.code == KeyCode::Delete {
                     self.queue.clear();
                     self.failed_nonces.clear();
                     self.update_preview_typed_text();
@@ -298,7 +298,7 @@ impl crate::app::state::AppState {
                         };
                         let _ = tx.send(AppEvent::UpdateReactionDelayMode(self.reaction_delay_mode)).await;
                     }
-                    KeyCode::F(11) => {
+                    KeyCode::Insert => {
                         let _ = tx.send(AppEvent::ToggleMode).await;
                     }
                     KeyCode::F(4) => {
