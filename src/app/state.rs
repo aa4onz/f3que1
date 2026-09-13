@@ -99,16 +99,7 @@ impl AppState {
         let target = self.queue[0].content.clone();
         if self.simulated_target_text != target {
             self.simulated_target_text = target.clone();
-            let chars: Vec<char> = target.chars().collect();
-            let len = chars.len();
-
-            if len > 2 {
-                // Instantly paste everything except the last 2 digits
-                let paste_part: String = chars[..len - 2].iter().collect();
-                self.preview_typed_text = paste_part;
-            } else {
-                self.preview_typed_text.clear();
-            }
+            self.preview_typed_text.clear();
             self.last_char_tick = Some(Instant::now());
             self.current_char_delay_ms = rand::thread_rng().gen_range(80..=100);
         }
@@ -130,8 +121,15 @@ impl AppState {
             };
 
             if should_advance {
-                let next_char = target_chars[current_chars.len()];
-                self.preview_typed_text.push(next_char);
+                if current_chars.is_empty() && target_chars.len() > 2 {
+                    // 1. First step: Paste everything except the last 2 digits after 80-100ms delay
+                    let paste_part: String = target_chars[..target_chars.len() - 2].iter().collect();
+                    self.preview_typed_text = paste_part;
+                } else {
+                    // 2. Next steps: Type remaining digits one by one with 80-100ms delay
+                    let next_char = target_chars[current_chars.len()];
+                    self.preview_typed_text.push(next_char);
+                }
                 self.last_char_tick = Some(Instant::now());
                 self.current_char_delay_ms = rand::thread_rng().gen_range(80..=100);
                 return true;
