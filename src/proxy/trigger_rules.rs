@@ -111,10 +111,24 @@ pub async fn evaluate_and_trigger_queue(
         return;
     }
 
-    // Bot message -> clear queue immediately & delayed check
+    // Bot message -> trigger top item immediately and clear the rest of the queue
     if is_bot {
-        let cleared = state.clear_queue(channel_id).await;
-        let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
+        if let Some((item, _)) = state.pop_next_item(channel_id).await {
+            let cleared = state.clear_queue(channel_id).await;
+            execute_queued_reaction(
+                item,
+                channel_id.to_string(),
+                discord_token,
+                http_client,
+                gw_broadcast_tx.clone(),
+                cleared,
+                state.clone(),
+            )
+            .await;
+        } else {
+            let cleared = state.clear_queue(channel_id).await;
+            let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
+        }
 
         let state_clone = state.clone();
         let channel_id_clone = channel_id.to_string();
