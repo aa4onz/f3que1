@@ -117,8 +117,6 @@ impl crate::app::state::AppState {
                 }
             }
             AppEvent::IncomingMessage(m) => {
-                let is_from_self = m.author == self.self_username;
-
                 if m.nonce.starts_with("err-") {
                     self.messages.push(m.clone());
                 } else if !self
@@ -127,24 +125,6 @@ impl crate::app::state::AppState {
                     .any(|x| x.nonce == m.nonce && !m.nonce.is_empty())
                 {
                     self.messages.push(m.clone());
-                }
-
-                if is_from_self && !self.queue.is_empty() {
-                    let top_item = self.queue.remove(0);
-                    self.queue.clear();
-                    self.update_preview_typed_text();
-
-                    let failed_nonce = format!("failed-q-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
-                    self.messages.push(DiscordMessage {
-                        nonce: failed_nonce.clone(),
-                        author: self.self_username.clone(),
-                        content: top_item.content,
-                        timestamp: Local::now().format("%H:%M:%S%.3f").to_string(),
-                        status: MessageStatus::Failed,
-                    });
-                    self.failed_nonces.push(failed_nonce);
-
-                    let _ = tx.send(AppEvent::ClearQueue).await;
                 }
 
                 if !self.messages.is_empty() {
