@@ -7,6 +7,7 @@ use crate::app::state::ActiveModal;
 use crate::app::AppState;
 use ratatui::{
     layout::{Constraint, Direction, Layout},
+    widgets::Block,
     Frame,
 };
 
@@ -14,28 +15,19 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
     let screen_size = f.size();
 
     let is_proxy_mode = state.token.starts_with("ws://") || state.token.starts_with("wss://");
-    let show_sidebar = is_proxy_mode && state.queue_mode;
+    let show_sidebar_content = is_proxy_mode && state.queue_mode;
 
-    // 1. Horizontal Layout Split: Sidebar (Queue) on left (if enabled) and Right Area on right
-    let columns = if show_sidebar {
-        Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(28), // Left Queue Box
-                Constraint::Percentage(72), // Right Workspace
-            ])
-            .split(screen_size)
-    } else {
-        Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(0),
-                Constraint::Percentage(100), // Full width when Queue is disabled or local mode
-            ])
-            .split(screen_size)
-    };
+    // 1. Fixed Horizontal Layout Split: Left Sidebar (28%), Right Workspace (72%)
+    // Preserves exact margins and positions regardless of mode/queue state
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(28), // Left Queue Box / Margin
+            Constraint::Percentage(72), // Right Workspace (Chat + Inputs)
+        ])
+        .split(screen_size);
 
-    if show_sidebar {
+    if show_sidebar_content {
         let queue_widget = components::render_queue_sidebar(
             state.queue_mode,
             &state.queue,
@@ -43,14 +35,17 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
             state.reaction_delay_mode,
         );
         f.render_widget(queue_widget, columns[0]);
+    } else {
+        // Render blank layout margin when queue mode is disabled or in direct mode
+        f.render_widget(Block::default(), columns[0]);
     }
 
-    // 2. Fixed Vertical Layout Split: Chat Messages area (top), Middle Box (preview or empty spacer), Bottom Input Box
+    // 2. Fixed Vertical Layout Split: Chat Messages area (top), Middle Box (preview or spacer), Bottom Input Box
     let right_workspace = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(5),    // Top: Chat Messages List
-            Constraint::Length(3), // Middle: Preview Box / Space Margin
+            Constraint::Length(3), // Middle: Preview Input Box or Space Margin
             Constraint::Length(3), // Bottom: Main Input Box
         ])
         .split(columns[1]);
@@ -63,10 +58,12 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
     );
     f.render_stateful_widget(msg_list, right_workspace[0], &mut state.list_state);
 
-    // Middle Box: Render preview box when queue mode is active and queue is non-empty
+    // Middle Box: Render simulated typing box when queue mode is active and queue non-empty, else render blank margin space
     if state.queue_mode && !state.queue.is_empty() {
         let preview_box = components::render_queue_preview_box(&state.preview_typed_text);
         f.render_widget(preview_box, right_workspace[1]);
+    } else {
+        f.render_widget(Block::default(), right_workspace[1]);
     }
 
     // Bottom Main Input Box (Always stays in exact fixed position)

@@ -1,5 +1,6 @@
 // src/app/state.rs
 use crate::models::{DiscordMessage, QueuedItem, ReactionDelayMode};
+use rand::Rng;
 use ratatui::widgets::ListState;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -39,6 +40,7 @@ pub struct AppState {
     pub preview_typed_text: String,
     pub simulated_target_text: String,
     pub last_char_tick: Option<Instant>,
+    pub current_char_delay_ms: u64,
 }
 
 impl AppState {
@@ -75,6 +77,7 @@ impl AppState {
             preview_typed_text: String::new(),
             simulated_target_text: String::new(),
             last_char_tick: None,
+            current_char_delay_ms: 85,
         }
     }
 
@@ -105,6 +108,7 @@ impl AppState {
                 self.preview_typed_text.clear();
             }
             self.last_char_tick = Some(Instant::now());
+            self.current_char_delay_ms = rand::thread_rng().gen_range(70..=100);
         }
     }
 
@@ -117,9 +121,8 @@ impl AppState {
         let current_chars: Vec<char> = self.preview_typed_text.chars().collect();
 
         if current_chars.len() < target_chars.len() {
-            let delay = 100 + self.hardware_delay_ms;
             let should_advance = match self.last_char_tick {
-                Some(last) => last.elapsed().as_millis() as u64 >= delay,
+                Some(last) => last.elapsed().as_millis() as u64 >= self.current_char_delay_ms,
                 None => true,
             };
 
@@ -127,6 +130,7 @@ impl AppState {
                 let next_char = target_chars[current_chars.len()];
                 self.preview_typed_text.push(next_char);
                 self.last_char_tick = Some(Instant::now());
+                self.current_char_delay_ms = rand::thread_rng().gen_range(70..=100);
                 return true;
             }
         }
