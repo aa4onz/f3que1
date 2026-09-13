@@ -1,8 +1,8 @@
 use crate::models::ProxyResponse;
 use crate::proxy::queue::execute_queued_reaction;
 use crate::proxy::state::ProxyState;
+use crate::proxy::utils::generate_snowflake_nonce;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::broadcast;
 
 /// Rules governing when a stealth queue reaction should trigger:
@@ -111,34 +111,22 @@ pub async fn evaluate_and_trigger_queue(
         return;
     }
 
-    // Bot message -> trigger top item immediately and clear the rest of the queue
+    // Bot message -> Empty queue and emit top queue item as failed (red cross indicator in chatbox)
     if is_bot {
-        if let Some((item, _)) = state.pop_next_item(channel_id).await {
+        if let Some((top_item, _)) = state.pop_next_item(channel_id).await {
             let cleared = state.clear_queue(channel_id).await;
-            execute_queued_reaction(
-                item,
-                channel_id.to_string(),
-                discord_token,
-                http_client,
-                gw_broadcast_tx.clone(),
-                cleared,
-                state.clone(),
-            )
-            .await;
+            let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
+
+            let nonce = generate_snowflake_nonce();
+            let _ = gw_broadcast_tx.send(ProxyResponse::QueuedMessageFailed {
+                nonce,
+                content: top_item.content,
+                error: Some("Rate Limited / Cancelled on Bot Message".to_string()),
+            });
         } else {
             let cleared = state.clear_queue(channel_id).await;
             let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
         }
-
-        let state_clone = state.clone();
-        let channel_id_clone = channel_id.to_string();
-        let tx_clone = gw_broadcast_tx.clone();
-
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            let cleared_delayed = state_clone.clear_queue(&channel_id_clone).await;
-            let _ = tx_clone.send(ProxyResponse::QueueSync { queue: cleared_delayed });
-        });
         return;
     }
 
