@@ -110,7 +110,7 @@ impl AppState {
                 self.preview_typed_text.clear();
             }
             self.last_char_tick = Some(Instant::now());
-            self.current_char_delay_ms = rand::thread_rng().gen_range(70..=100);
+            self.current_char_delay_ms = rand::thread_rng().gen_range(80..=100);
         }
     }
 
@@ -133,7 +133,7 @@ impl AppState {
                 let next_char = target_chars[current_chars.len()];
                 self.preview_typed_text.push(next_char);
                 self.last_char_tick = Some(Instant::now());
-                self.current_char_delay_ms = rand::thread_rng().gen_range(70..=100);
+                self.current_char_delay_ms = rand::thread_rng().gen_range(80..=100);
                 return true;
             }
         }
