@@ -16,9 +16,9 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
 
     let is_proxy_mode = state.token.starts_with("ws://") || state.token.starts_with("wss://");
     let show_sidebar_content = is_proxy_mode && state.queue_mode;
+    let show_preview_box = state.queue_mode && !state.queue.is_empty();
 
-    // 1. Fixed Horizontal Layout Split: Left Sidebar (28%), Right Workspace (72%)
-    // Preserves exact margins and positions regardless of mode/queue state
+    // 1. Horizontal Layout Split: Left Sidebar (28%), Right Workspace (72%)
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -40,35 +40,52 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
         f.render_widget(Block::default(), columns[0]);
     }
 
-    // 2. Fixed Vertical Layout Split: Chat Messages area (top), Middle Box (preview or spacer), Bottom Input Box
-    let right_workspace = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(5),    // Top: Chat Messages List
-            Constraint::Length(3), // Middle: Preview Input Box or Space Margin
-            Constraint::Length(3), // Bottom: Main Input Box
-        ])
-        .split(columns[1]);
+    // 2. Dynamic Vertical Layout Split:
+    // When preview box is active -> 3 slots: Messages, Simulated Preview Box, Main Input Box
+    // When preview box is inactive -> 2 slots: Messages, Main Input Box (no extra gap)
+    if show_preview_box {
+        let right_workspace = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(5),    // Top: Chat Messages List
+                Constraint::Length(3), // Middle: Simulated Preview Input Box
+                Constraint::Length(3), // Bottom: Main Input Box
+            ])
+            .split(columns[1]);
 
-    let msg_list = components::render_messages(
-        &state.messages,
-        &state.self_username,
-        state.show_timestamp,
-        state.show_latency,
-    );
-    f.render_stateful_widget(msg_list, right_workspace[0], &mut state.list_state);
+        let msg_list = components::render_messages(
+            &state.messages,
+            &state.self_username,
+            state.show_timestamp,
+            state.show_latency,
+        );
+        f.render_stateful_widget(msg_list, right_workspace[0], &mut state.list_state);
 
-    // Middle Box: Render simulated typing box when queue mode is active and queue non-empty, else render blank margin space
-    if state.queue_mode && !state.queue.is_empty() {
         let preview_box = components::render_queue_preview_box(&state.preview_typed_text);
         f.render_widget(preview_box, right_workspace[1]);
-    } else {
-        f.render_widget(Block::default(), right_workspace[1]);
-    }
 
-    // Bottom Main Input Box (Always stays in exact fixed position)
-    let input_box = components::render_input_box(&state.input_text);
-    f.render_widget(input_box, right_workspace[2]);
+        let input_box = components::render_input_box(&state.input_text);
+        f.render_widget(input_box, right_workspace[2]);
+    } else {
+        let right_workspace = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(5),    // Top: Chat Messages List
+                Constraint::Length(3), // Bottom: Main Input Box (directly below messages)
+            ])
+            .split(columns[1]);
+
+        let msg_list = components::render_messages(
+            &state.messages,
+            &state.self_username,
+            state.show_timestamp,
+            state.show_latency,
+        );
+        f.render_stateful_widget(msg_list, right_workspace[0], &mut state.list_state);
+
+        let input_box = components::render_input_box(&state.input_text);
+        f.render_widget(input_box, right_workspace[1]);
+    }
 
     // Render Modal Overlays
     match state.active_modal {
