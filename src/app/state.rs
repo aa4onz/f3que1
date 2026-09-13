@@ -78,7 +78,7 @@ impl AppState {
             preview_typed_text: String::new(),
             simulated_target_text: String::new(),
             last_char_tick: None,
-            current_char_delay_ms: 75,
+            current_char_delay_ms: 120,
         }
     }
 
@@ -101,7 +101,7 @@ impl AppState {
             self.simulated_target_text = target.clone();
             self.preview_typed_text.clear();
             self.last_char_tick = Some(Instant::now());
-            self.current_char_delay_ms = rand::thread_rng().gen_range(70..=80);
+            self.current_char_delay_ms = rand::thread_rng().gen_range(100..=200);
         }
     }
 
@@ -151,7 +151,7 @@ impl AppState {
                 }
 
                 self.last_char_tick = Some(Instant::now());
-                self.current_char_delay_ms = rand::thread_rng().gen_range(70..=80);
+                self.current_char_delay_ms = rand::thread_rng().gen_range(100..=200);
                 return true;
             }
         }
