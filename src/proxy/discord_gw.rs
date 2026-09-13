@@ -109,11 +109,11 @@ pub async fn run_discord_gateway(
                                             state.set_self_info(uid, uname).await;
                                         }
 
-                                        // Stealth Queue Evaluation via WebSocket MESSAGE_CREATE event only
+                                        // Stealth Queue Evaluation via WebSocket MESSAGE_CREATE
                                         if event_type == "MESSAGE_CREATE" {
                                             let cid = data["channel_id"].as_str().unwrap_or("");
                                             evaluate_and_trigger_queue(
-                                                &data,
+                                                Some(&data),
                                                 cid,
                                                 &state,
                                                 discord_token.clone(),
@@ -133,6 +133,7 @@ pub async fn run_discord_gateway(
                 }
             }
         }
+
         tokio::time::sleep(Duration::from_secs(3)).await;
     }
 }

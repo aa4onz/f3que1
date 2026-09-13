@@ -9,13 +9,12 @@ use tokio::sync::broadcast;
 /// 1. Queue Mode must be active.
 /// 2. Zero check: If top item number is 0 (or content "0"), clear entire queue and do not send.
 /// 3. Size check: Requires queue size >= 2 to process.
-/// 4. Sender check:
-///    - Triggers ONLY on incoming WebSocket MESSAGE_CREATE payload (100% realtime, 0ms HTTP REST overhead).
-///    - Self message check: Never trigger on own messages.
-///    - Bot check: If sender is a bot or webhook, cancel and clear queue immediately, and schedule another clear after 1 second.
-///    - Duplicate check: Ignore messages that have already triggered a reaction.
+/// 4. Sender & Duplicate check:
+///    - Supports both instant WebSocket event payload AND REST API fallback.
+///    - Atomically marks message ID as processed to strictly guarantee 1 trigger per Discord message.
+///    - Bot check: If sender is a bot or webhook, cancel and clear queue immediately.
 pub async fn evaluate_and_trigger_queue(
-    message_data: &serde_json::Value,
+    message_data: Option<&serde_json::Value>,
     channel_id: &str,
     state: &ProxyState,
     discord_token: String,
@@ -56,29 +55,61 @@ pub async fn evaluate_and_trigger_queue(
         }
     }
 
-    let msg_id = message_data["id"].as_str().unwrap_or("");
-    
-    // Check and set processed message atomically to prevent duplicate trigger races
+    // Fetch last message from Discord API if no direct gateway event payload was provided
+    let fetched_last_msg;
+    let data = match message_data {
+        Some(d) => d,
+        None => {
+            let url = format!(
+                "https://discord.com/api/v10/channels/{}/messages?limit=1",
+                channel_id
+            );
+            let res = http_client
+                .get(&url)
+                .header("Authorization", &discord_token)
+                .send()
+                .await;
+
+            if let Ok(resp) = res {
+                if let Ok(arr) = resp.json::<serde_json::Value>().await {
+                    if let Some(first_msg) = arr.get(0) {
+                        fetched_last_msg = first_msg.clone();
+                        &fetched_last_msg
+                    } else {
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
+        }
+    };
+
+    let msg_id = data["id"].as_str().unwrap_or("");
+
+    // ATOMIC DEDUPLICATION: Ensures REST fallback and WebSocket payload never conflict or double-trigger
     if !msg_id.is_empty() {
         if !state.try_mark_message_processed(channel_id, msg_id).await {
             return;
         }
     }
 
-    let author_id = message_data["author"]["id"].as_str().unwrap_or("");
-    let author_uname = message_data["author"]["username"].as_str().unwrap_or("");
-    
-    // Enhanced Bot Detection: Check boolean, bot discriminator, webhook_id, or message type
-    let is_bot = message_data["author"]["bot"].as_bool().unwrap_or(false)
-        || message_data["webhook_id"].is_string()
-        || message_data["type"].as_u64().map_or(false, |t| t != 0 && t != 19); // 0 = DEFAULT, 19 = REPLY
+    let author_id = data["author"]["id"].as_str().unwrap_or("");
+    let author_uname = data["author"]["username"].as_str().unwrap_or("");
 
-    // Rule 4: Cannot trigger on own message
+    // Enhanced Bot Detection
+    let is_bot = data["author"]["bot"].as_bool().unwrap_or(false)
+        || data["webhook_id"].is_string()
+        || data["type"].as_u64().map_or(false, |t| t != 0 && t != 19);
+
+    // Cannot trigger on own message
     if state.is_self_author(author_id, author_uname).await {
         return;
     }
 
-    // Rule 4: If message sender is a bot -> clear queue immediately & again after 1s
+    // Bot message -> clear queue immediately & delayed check
     if is_bot {
         let cleared = state.clear_queue(channel_id).await;
         let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
@@ -95,7 +126,7 @@ pub async fn evaluate_and_trigger_queue(
         return;
     }
 
-    // Trigger exactly ONE next item and preserve remaining queue
+    // Trigger exactly ONE next item
     if let Some((item, remaining_q)) = state.pop_next_item(channel_id).await {
         execute_queued_reaction(
             item,
