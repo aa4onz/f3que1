@@ -300,7 +300,7 @@ impl crate::app::state::AppState {
                         };
                         let _ = tx.send(AppEvent::UpdateReactionDelayMode(self.reaction_delay_mode)).await;
                     }
-                    KeyCode::F(11) | KeyCode::F(12) | KeyCode::Insert => {
+                    KeyCode::BackTab | KeyCode::F(11) | KeyCode::F(12) | KeyCode::Insert => {
                         let _ = tx.send(AppEvent::ToggleMode).await;
                     }
                     KeyCode::F(4) => {
@@ -341,6 +341,9 @@ impl crate::app::state::AppState {
                         let max_idx = self.messages.len().saturating_sub(1);
                         let new_idx = (current + 1).min(max_idx);
                         self.list_state.select(Some(new_idx));
+                    }
+                    KeyCode::Tab if k.modifiers.contains(KeyModifiers::SHIFT) => {
+                        let _ = tx.send(AppEvent::ToggleMode).await;
                     }
                     KeyCode::Tab => {
                         if let Some(last_failed_nonce) = self.failed_nonces.last().cloned() {
