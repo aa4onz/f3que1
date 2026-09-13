@@ -7,6 +7,7 @@ use std::env;
 use std::io::{self, Write};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
+use tokio::time::{interval, Duration};
 
 fn sanitize_proxy_url(raw_url: &str) -> String {
     let mut url = raw_url.trim().trim_end_matches('/').to_string();
@@ -174,6 +175,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tui::render(f, &mut state);
             })?;
         }
+
+        // Ticker task for driving visual character typing updates continuously
+        let tick_tx = event_tx.clone();
+        tokio::spawn(async move {
+            let mut ticker = interval(Duration::from_millis(20));
+            loop {
+                ticker.tick().await;
+                // Dummy terminal wake event to drive frame rendering smoothly
+            }
+        });
 
         while let Some(event) = event_rx.recv().await {
             let mut state = app_state.lock().await;

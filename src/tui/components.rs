@@ -133,7 +133,7 @@ pub fn render_queue_preview_box<'a>(preview_text: &'a str) -> Paragraph<'a> {
     let line = Line::from(vec![prompt_span, text_span]);
 
     Paragraph::new(line)
-        .block(Block::default().borders(Borders::ALL))
+        .block(Block::default().borders(Borders::ALL).title(" Send Message "))
 }
 
 pub fn render_input_box<'a>(input_text: &'a str) -> Paragraph<'a> {

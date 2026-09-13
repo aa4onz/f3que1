@@ -98,7 +98,7 @@ impl AppState {
             let len = chars.len();
 
             if len > 2 {
-                // Paste everything except last 2 digits/characters
+                // Instantly paste everything except the last 2 digits
                 let paste_part: String = chars[..len - 2].iter().collect();
                 self.preview_typed_text = paste_part;
             } else {
@@ -108,12 +108,15 @@ impl AppState {
         }
     }
 
-    pub fn step_simulated_typing(&mut self) {
+    pub fn step_simulated_typing(&mut self) -> bool {
         if !self.queue_mode || self.queue.is_empty() || self.simulated_target_text.is_empty() {
-            return;
+            return false;
         }
 
-        if self.preview_typed_text.len() < self.simulated_target_text.len() {
+        let target_chars: Vec<char> = self.simulated_target_text.chars().collect();
+        let current_chars: Vec<char> = self.preview_typed_text.chars().collect();
+
+        if current_chars.len() < target_chars.len() {
             let delay = self.hardware_delay_ms.max(45);
             let should_advance = match self.last_char_tick {
                 Some(last) => last.elapsed().as_millis() as u64 >= delay,
@@ -121,12 +124,12 @@ impl AppState {
             };
 
             if should_advance {
-                let current_len = self.preview_typed_text.len();
-                if let Some(next_char) = self.simulated_target_text.chars().nth(current_len) {
-                    self.preview_typed_text.push(next_char);
-                    self.last_char_tick = Some(Instant::now());
-                }
+                let next_char = target_chars[current_chars.len()];
+                self.preview_typed_text.push(next_char);
+                self.last_char_tick = Some(Instant::now());
+                return true;
             }
         }
+        false
     }
 }
