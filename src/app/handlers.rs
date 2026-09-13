@@ -14,13 +14,38 @@ impl crate::app::state::AppState {
         tx: &Sender<AppEvent>,
     ) -> bool {
         match event {
-            AppEvent::ToggleQueueMode => {
-                self.queue_mode = !self.queue_mode;
-                if !self.queue_mode {
-                    self.queue.clear();
-                    let _ = tx.send(AppEvent::ClearQueue).await;
+            AppEvent::ToggleMode => {
+                let is_proxy = self.token.starts_with("ws://") || self.token.starts_with("wss://");
+                if is_proxy {
+                    if let Ok(tok) = std::fs::read_to_string(".token_cache") {
+                        if !tok.trim().is_empty() {
+                            self.token = tok.trim().to_string();
+                            self.queue_mode = false;
+                            self.queue.clear();
+                            self.update_preview_typed_text();
+                        }
+                    }
+                } else if let Ok(prx) = std::fs::read_to_string(".proxy_cache") {
+                    if !prx.trim().is_empty() {
+                        self.token = prx.trim().to_string();
+                        self.queue_mode = true;
+                    }
                 }
-                self.update_preview_typed_text();
+            }
+            AppEvent::ToggleQueueMode => {
+                let is_proxy = self.token.starts_with("ws://") || self.token.starts_with("wss://");
+                if is_proxy {
+                    self.queue_mode = !self.queue_mode;
+                    if !self.queue_mode {
+                        self.queue.clear();
+                        let _ = tx.send(AppEvent::ClearQueue).await;
+                    }
+                    self.update_preview_typed_text();
+                } else {
+                    self.queue_mode = false;
+                    self.queue.clear();
+                    self.update_preview_typed_text();
+                }
             }
             AppEvent::ClearQueue => {
                 self.queue.clear();
@@ -133,7 +158,6 @@ impl crate::app::state::AppState {
                 }
             }
             AppEvent::GatewayClosed => {
-                // Clear queue immediately if local PC internet/gateway disconnects
                 self.queue.clear();
                 self.update_preview_typed_text();
                 let _ = tx.send(AppEvent::ClearQueue).await;
@@ -141,7 +165,7 @@ impl crate::app::state::AppState {
                 self.messages.push(DiscordMessage {
                     nonce: "err-close".into(),
                     author: "System".into(),
-                    content: "⚠️ Internet / WebSocket disconnected. Stealth queue cleared.".into(),
+                    content: "⚠️ Internet / WebSocket disconnected.".into(),
                     timestamp: Local::now().format("%H:%M:%S%.3f").to_string(),
                     status: MessageStatus::Failed,
                 });
@@ -168,7 +192,6 @@ impl crate::app::state::AppState {
                     return false;
                 }
 
-                // Handle active modals first
                 if self.active_modal != ActiveModal::None {
                     match self.active_modal {
                         ActiveModal::LogoutPrompt => match k.code {
@@ -210,7 +233,6 @@ impl crate::app::state::AppState {
                     return false;
                 }
 
-                // Global shortcut keys
                 if (k.code == KeyCode::Char('q') || k.code == KeyCode::Char('Q')) && k.modifiers.contains(KeyModifiers::CONTROL) {
                     let _ = tx.send(AppEvent::ToggleQueueMode).await;
                     return false;
@@ -231,7 +253,6 @@ impl crate::app::state::AppState {
                     return false;
                 }
 
-                // Keystroke Latency Measurement: calculate time delta between key actions
                 let now = Instant::now();
                 if let Some(prev) = self.last_keystroke_time {
                     let diff_ms = now.duration_since(prev).as_millis() as u64;
@@ -267,6 +288,9 @@ impl crate::app::state::AppState {
                             ReactionDelayMode::Instant => ReactionDelayMode::Normal,
                         };
                         let _ = tx.send(AppEvent::UpdateReactionDelayMode(self.reaction_delay_mode)).await;
+                    }
+                    KeyCode::F(11) => {
+                        let _ = tx.send(AppEvent::ToggleMode).await;
                     }
                     KeyCode::F(4) => {
                         self.active_modal = ActiveModal::LogoutPrompt;

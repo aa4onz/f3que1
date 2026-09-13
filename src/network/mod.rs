@@ -2,7 +2,6 @@
 pub mod gateway;
 pub mod http;
 
-use crate::app::queue_sender::send_direct_message;
 use crate::app::state::AppState;
 use crate::models::{AppEvent, DiscordApiMessage, DiscordMessage, MessageStatus, ProxyAction, ProxyResponse};
 use crate::network::http::DiscordHttpClient;
@@ -316,7 +315,7 @@ pub fn spawn_network_handlers(
         // Mode 1: Direct Discord Mode
         let gw_state = Arc::clone(&app_state);
         let gw_tx = event_tx.clone();
-        let gw_cid_rx = channel_id_rx;
+        let gw_cid_rx = channel_id_rx.clone();
         tokio::spawn(async move {
             gateway::run_gateway_loop(gw_state, gw_tx, gw_cid_rx).await;
         });
@@ -335,8 +334,8 @@ pub fn spawn_network_handlers(
 
         let http_client = Arc::new(DiscordHttpClient::new(reqwest_client, target_url));
         let worker_tx = event_tx;
-        let state_direct = Arc::clone(&app_state);
         let mut outbound_rx = net_rx;
+        let direct_cid_rx = channel_id_rx;
 
         tokio::spawn(async move {
             while let Some(job) = outbound_rx.recv().await {
@@ -344,20 +343,6 @@ pub fn spawn_network_handlers(
                 let tx = worker_tx.clone();
 
                 match job {
-                    AppEvent::TriggerTopQueue => {
-                        let top_item = {
-                            let mut st = state_direct.lock().await;
-                            if !st.queue.is_empty() {
-                                Some(st.queue.remove(0))
-                            } else {
-                                None
-                            }
-                        };
-                        if let Some(item) = top_item {
-                            let mut st = state_direct.lock().await;
-                            send_direct_message(&mut st, item.content, &tx).await;
-                        }
-                    }
                     AppEvent::FetchChannelHistory(cid) => {
                         tokio::spawn(async move {
                             if let Ok(msgs) = client.fetch_messages(&cid, 50).await {
@@ -366,26 +351,30 @@ pub fn spawn_network_handlers(
                         });
                     }
                     AppEvent::HttpTriggerTyping => {
-                        let cid = client.token.clone();
-                        tokio::spawn(async move {
-                            let _ = client.send_typing(&cid).await;
-                        });
+                        let cid = direct_cid_rx.borrow().clone();
+                        if !cid.is_empty() {
+                            tokio::spawn(async move {
+                                let _ = client.send_typing(&cid).await;
+                            });
+                        }
                     }
                     AppEvent::HttpSendChat { nonce, text } => {
-                        let cid = client.token.clone();
-                        tokio::spawn(async move {
-                            match client.send_message(&cid, &text, &nonce).await {
-                                Ok(res) if res.status().is_success() => {
-                                    let _ = tx.send(AppEvent::MessageSent {
-                                        nonce,
-                                        timestamp: String::new(),
-                                    }).await;
+                        let cid = direct_cid_rx.borrow().clone();
+                        if !cid.is_empty() {
+                            tokio::spawn(async move {
+                                match client.send_message(&cid, &text, &nonce).await {
+                                    Ok(res) if res.status().is_success() => {
+                                        let _ = tx.send(AppEvent::MessageSent {
+                                            nonce,
+                                            timestamp: String::new(),
+                                        }).await;
+                                    }
+                                    _ => {
+                                        let _ = tx.send(AppEvent::MessageFailed { nonce }).await;
+                                    }
                                 }
-                                _ => {
-                                    let _ = tx.send(AppEvent::MessageFailed { nonce }).await;
-                                }
-                            }
-                        });
+                            });
+                        }
                     }
                     _ => {}
                 }

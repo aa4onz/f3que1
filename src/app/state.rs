@@ -49,6 +49,7 @@ impl AppState {
         list_state.select(Some(0));
 
         let (channel_id_tx, channel_id_rx) = watch::channel(String::new());
+        let is_proxy = token.starts_with("ws://") || token.starts_with("wss://");
 
         Self {
             token,
@@ -69,7 +70,7 @@ impl AppState {
             show_timestamp: true,
             show_latency: true,
             scroll_offset: 0,
-            queue_mode: true, // Queue Mode Enabled by default
+            queue_mode: is_proxy, // Queue Mode Enabled only in Proxy Mode by default
             queue: Vec::new(),
             last_keystroke_time: None,
             hardware_delay_ms: 45,
@@ -87,7 +88,8 @@ impl AppState {
     }
 
     pub fn update_preview_typed_text(&mut self) {
-        if !self.queue_mode || self.queue.is_empty() {
+        let is_proxy = self.token.starts_with("ws://") || self.token.starts_with("wss://");
+        if !is_proxy || !self.queue_mode || self.queue.is_empty() {
             self.preview_typed_text.clear();
             self.simulated_target_text.clear();
             self.last_char_tick = None;
@@ -113,7 +115,8 @@ impl AppState {
     }
 
     pub fn step_simulated_typing(&mut self) -> bool {
-        if !self.queue_mode || self.queue.is_empty() || self.simulated_target_text.is_empty() {
+        let is_proxy = self.token.starts_with("ws://") || self.token.starts_with("wss://");
+        if !is_proxy || !self.queue_mode || self.queue.is_empty() || self.simulated_target_text.is_empty() {
             return false;
         }
 

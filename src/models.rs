@@ -56,6 +56,7 @@ pub enum AppEvent {
     FetchChannelHistory(String),
     LoadChannelHistory(Vec<DiscordMessage>),
     SwitchChannel(String),
+    ToggleMode,
     UpdateGatewayRtt { rtt_ms: u64, offset_ms: i64 },
     UpdateClockOffset(i64),
     ToggleTimestamp,
