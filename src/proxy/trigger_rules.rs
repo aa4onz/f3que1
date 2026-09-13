@@ -12,7 +12,7 @@ use tokio::sync::broadcast;
 /// 4. Sender check:
 ///    - Triggers on incoming message event or latest channel message.
 ///    - Self message check: Never trigger on own messages.
-///    - Bot check: If sender is a bot, cancel and clear queue immediately, and schedule another clear after 1 second.
+///    - Bot check: If sender is a bot or webhook, cancel and clear queue immediately, and schedule another clear after 1 second.
 ///    - Duplicate check: Ignore messages that have already triggered a reaction.
 pub async fn evaluate_and_trigger_queue(
     message_data: Option<&serde_json::Value>,
@@ -89,13 +89,21 @@ pub async fn evaluate_and_trigger_queue(
     };
 
     let msg_id = data["id"].as_str().unwrap_or("");
-    if !msg_id.is_empty() && state.is_message_already_processed(channel_id, msg_id).await {
-        return;
+    
+    // Check and set processed message atomically to prevent duplicate trigger races
+    if !msg_id.is_empty() {
+        if !state.try_mark_message_processed(channel_id, msg_id).await {
+            return;
+        }
     }
 
     let author_id = data["author"]["id"].as_str().unwrap_or("");
     let author_uname = data["author"]["username"].as_str().unwrap_or("");
-    let is_bot = data["author"]["bot"].as_bool().unwrap_or(false);
+    
+    // Enhanced Bot Detection: Check boolean, bot discriminator, webhook_id, or message type
+    let is_bot = data["author"]["bot"].as_bool().unwrap_or(false)
+        || data["webhook_id"].is_string()
+        || data["type"].as_u64().map_or(false, |t| t != 0 && t != 19); // 0 = DEFAULT, 19 = REPLY
 
     // Rule 4: Cannot trigger on own message
     if state.is_self_author(author_id, author_uname).await {
@@ -117,11 +125,6 @@ pub async fn evaluate_and_trigger_queue(
             let _ = tx_clone.send(ProxyResponse::QueueSync { queue: cleared_delayed });
         });
         return;
-    }
-
-    // Mark message ID as processed prior to popping/sending to prevent double-sends
-    if !msg_id.is_empty() {
-        state.set_last_processed_message_id(channel_id, msg_id).await;
     }
 
     // Trigger exactly ONE next item and preserve remaining queue

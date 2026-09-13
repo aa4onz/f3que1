@@ -101,23 +101,19 @@ impl ProxyState {
         (!my_id.is_empty() && author_id == *my_id) || (!my_uname.is_empty() && author_uname == *my_uname)
     }
 
-    pub async fn is_message_already_processed(&self, channel_id: &str, msg_id: &str) -> bool {
+    /// Atomically checks if message was already processed and marks it as processed.
+    /// Returns `true` if it was NEW (successfully marked), or `false` if ALREADY processed.
+    pub async fn try_mark_message_processed(&self, channel_id: &str, msg_id: &str) -> bool {
         if msg_id.is_empty() {
-            return false;
-        }
-        let map = self.last_processed_message_id.read().await;
-        if let Some(last_id) = map.get(channel_id) {
-            last_id == msg_id
-        } else {
-            false
-        }
-    }
-
-    pub async fn set_last_processed_message_id(&self, channel_id: &str, msg_id: &str) {
-        if msg_id.is_empty() {
-            return;
+            return true;
         }
         let mut map = self.last_processed_message_id.write().await;
+        if let Some(last_id) = map.get(channel_id) {
+            if last_id == msg_id {
+                return false;
+            }
+        }
         map.insert(channel_id.to_string(), msg_id.to_string());
+        true
     }
 }
