@@ -116,7 +116,7 @@ pub fn render_messages<'a>(
 
     let time_status = if show_time { "F6: Hide Time" } else { "F6: Show Time" };
     let lat_status = if show_lat { "F7: Hide Latency" } else { "F7: Show Latency" };
-    let title_text = format!(" Messages [{} | {} | F5: Channel | Insert: Switch Mode] ", time_status, lat_status);
+    let title_text = format!(" Messages [{} | {} | F5: Channel | F11: Switch Mode] ", time_status, lat_status);
 
     List::new(msgs)
         .block(Block::default()

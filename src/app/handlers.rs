@@ -241,6 +241,7 @@ impl crate::app::state::AppState {
                 }
                 if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) && self.input_text.is_empty() {
                     self.queue.clear();
+                    self.failed_nonces.clear();
                     self.update_preview_typed_text();
                     let _ = tx.send(AppEvent::ClearQueue).await;
                     return false;
@@ -281,6 +282,7 @@ impl crate::app::state::AppState {
                     }
                     KeyCode::F(3) => {
                         self.queue.clear();
+                        self.failed_nonces.clear();
                         self.update_preview_typed_text();
                         let _ = tx.send(AppEvent::ClearQueue).await;
                     }
@@ -298,7 +300,7 @@ impl crate::app::state::AppState {
                         };
                         let _ = tx.send(AppEvent::UpdateReactionDelayMode(self.reaction_delay_mode)).await;
                     }
-                    KeyCode::Insert => {
+                    KeyCode::F(11) | KeyCode::F(12) | KeyCode::Insert => {
                         let _ = tx.send(AppEvent::ToggleMode).await;
                     }
                     KeyCode::F(4) => {
