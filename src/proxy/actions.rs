@@ -61,11 +61,11 @@ pub async fn handle_action(
             }
         }
         ProxyAction::EnqueueNumber { channel_id, item } => {
+            let queue_was_empty = state.is_queue_empty(&channel_id).await;
             let updated_q = state.enqueue_item(&channel_id, item).await;
             send_resp(write_arc, &ProxyResponse::QueueSync { queue: updated_q.clone() }).await;
 
-            // Auto-trigger check when queue size is greater than 1
-            if updated_q.len() >= 2 {
+            if queue_was_empty {
                 evaluate_and_trigger_queue(
                     None,
                     &channel_id,

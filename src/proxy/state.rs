@@ -1,9 +1,10 @@
 use crate::models::{QueuedItem, ReactionDelayMode};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ProxyState {
     pub active_queue: Arc<RwLock<HashMap<String, Vec<QueuedItem>>>>,
     pub queue_mode_enabled: Arc<RwLock<bool>>,
@@ -12,6 +13,14 @@ pub struct ProxyState {
     pub self_user_id: Arc<RwLock<String>>,
     pub self_username: Arc<RwLock<String>>,
     pub last_processed_message_id: Arc<RwLock<HashMap<String, String>>>,
+    pub last_sender_was_me: Arc<AtomicBool>,
+    pub last_live_event_time: Arc<AtomicU64>,
+}
+
+impl Default for ProxyState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProxyState {
@@ -24,6 +33,8 @@ impl ProxyState {
             self_user_id: Arc::new(RwLock::new(String::new())),
             self_username: Arc::new(RwLock::new(String::new())),
             last_processed_message_id: Arc::new(RwLock::new(HashMap::new())),
+            last_sender_was_me: Arc::new(AtomicBool::new(false)),
+            last_live_event_time: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -63,6 +74,11 @@ impl ProxyState {
             q.clear();
         }
         Vec::new()
+    }
+
+    pub async fn is_queue_empty(&self, cid: &str) -> bool {
+        let map = self.active_queue.read().await;
+        map.get(cid).map_or(true, |q| q.is_empty())
     }
 
     pub async fn enqueue_item(&self, channel_id: &str, mut item: QueuedItem) -> Vec<QueuedItem> {

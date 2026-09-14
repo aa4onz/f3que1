@@ -2,7 +2,9 @@ use crate::models::ProxyResponse;
 use crate::proxy::queue::execute_queued_reaction;
 use crate::proxy::state::ProxyState;
 use crate::proxy::utils::generate_snowflake_nonce;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
 
 /// Rules governing when a stealth queue reaction should trigger:
@@ -23,6 +25,21 @@ pub async fn evaluate_and_trigger_queue(
 ) {
     if channel_id.is_empty() {
         return;
+    }
+
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    if message_data.is_some() {
+        state.last_live_event_time.store(now_ms, Ordering::SeqCst);
+        state.last_sender_was_me.store(false, Ordering::SeqCst);
+    } else {
+        let last_event = state.last_live_event_time.load(Ordering::SeqCst);
+        if now_ms.saturating_sub(last_event) < 2000 {
+            return;
+        }
     }
 
     // Rule 1: Queue Mode must be active
@@ -127,6 +144,15 @@ pub async fn evaluate_and_trigger_queue(
             let cleared = state.clear_queue(channel_id).await;
             let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
         }
+        return;
+    }
+
+    // Circuit breaker: ensure strictly one thread triggers back-to-back
+    if state
+        .last_sender_was_me
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
         return;
     }
 
