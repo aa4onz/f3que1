@@ -119,6 +119,7 @@ pub async fn run_discord_gateway(
                                                 discord_token.clone(),
                                                 Arc::clone(&http_client),
                                                 gw_broadcast_tx.clone(),
+                                                false,
                                             )
                                             .await;
                                         }

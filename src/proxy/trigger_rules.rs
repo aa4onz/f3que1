@@ -22,6 +22,7 @@ pub async fn evaluate_and_trigger_queue(
     discord_token: String,
     http_client: Arc<reqwest::Client>,
     gw_broadcast_tx: broadcast::Sender<ProxyResponse>,
+    force_skip_delay: bool,
 ) {
     if channel_id.is_empty() {
         return;
@@ -166,7 +167,7 @@ pub async fn evaluate_and_trigger_queue(
             gw_broadcast_tx,
             remaining_q,
             state.clone(),
-            false,
+            force_skip_delay,
         )
         .await;
     }

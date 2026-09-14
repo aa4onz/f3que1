@@ -1,6 +1,7 @@
 use crate::models::{ProxyAction, ProxyResponse};
 use crate::proxy::queue::execute_queued_reaction;
 use crate::proxy::state::ProxyState;
+use crate::proxy::trigger_rules::evaluate_and_trigger_queue;
 use futures_util::{stream::SplitSink, SinkExt};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -81,25 +82,25 @@ pub async fn handle_action(
                     if let Ok(arr) = resp.json::<serde_json::Value>().await {
                         if let Some(first_msg) = arr.get(0) {
                             let author_id = first_msg["author"]["id"].as_str().unwrap_or("");
-                            let author_uname = first_msg["author"]["username"].as_str().unwrap_or("");
+                            let is_known_bot_id = author_id == "510016054391734273" || author_id == "639599059036012605";
+                            let is_bot = is_known_bot_id
+                                || first_msg["author"]["bot"].as_bool().unwrap_or(false)
+                                || first_msg["webhook_id"].is_string()
+                                || first_msg["type"].as_u64().map_or(false, |t| t != 0 && t != 19);
 
-                            if state.is_self_author(author_id, author_uname).await {
+                            if is_bot {
                                 state.last_sender_was_me.store(true, Ordering::SeqCst);
                             } else {
-                                state.last_sender_was_me.store(true, Ordering::SeqCst);
-                                if let Some((popped_item, remaining_q)) = state.pop_next_item(&channel_id).await {
-                                    execute_queued_reaction(
-                                        popped_item,
-                                        channel_id.clone(),
-                                        discord_token.to_string(),
-                                        Arc::clone(http_client),
-                                        gw_broadcast_tx.clone(),
-                                        remaining_q,
-                                        state.clone(),
-                                        true,
-                                    )
-                                    .await;
-                                }
+                                evaluate_and_trigger_queue(
+                                    Some(first_msg),
+                                    &channel_id,
+                                    state,
+                                    discord_token.to_string(),
+                                    Arc::clone(http_client),
+                                    gw_broadcast_tx.clone(),
+                                    true,
+                                )
+                                .await;
                             }
                         }
                     }
