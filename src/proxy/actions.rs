@@ -1,7 +1,6 @@
 use crate::models::{ProxyAction, ProxyResponse};
 use crate::proxy::queue::execute_queued_reaction;
 use crate::proxy::state::ProxyState;
-use crate::proxy::trigger_rules::evaluate_and_trigger_queue;
 use futures_util::{stream::SplitSink, SinkExt};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -57,6 +56,7 @@ pub async fn handle_action(
                     gw_broadcast_tx.clone(),
                     remaining_q,
                     state.clone(),
+                    false,
                 )
                 .await;
             }
@@ -86,16 +86,20 @@ pub async fn handle_action(
                             if state.is_self_author(author_id, author_uname).await {
                                 state.last_sender_was_me.store(true, Ordering::SeqCst);
                             } else {
-                                state.last_sender_was_me.store(false, Ordering::SeqCst);
-                                evaluate_and_trigger_queue(
-                                    Some(first_msg),
-                                    &channel_id,
-                                    state,
-                                    discord_token.to_string(),
-                                    Arc::clone(http_client),
-                                    gw_broadcast_tx.clone(),
-                                )
-                                .await;
+                                state.last_sender_was_me.store(true, Ordering::SeqCst);
+                                if let Some((popped_item, remaining_q)) = state.pop_next_item(&channel_id).await {
+                                    execute_queued_reaction(
+                                        popped_item,
+                                        channel_id.clone(),
+                                        discord_token.to_string(),
+                                        Arc::clone(http_client),
+                                        gw_broadcast_tx.clone(),
+                                        remaining_q,
+                                        state.clone(),
+                                        true,
+                                    )
+                                    .await;
+                                }
                             }
                         }
                     }

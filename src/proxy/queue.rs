@@ -14,6 +14,7 @@ pub async fn execute_queued_reaction(
     gw_broadcast_tx: broadcast::Sender<ProxyResponse>,
     remaining_queue: Vec<QueuedItem>,
     state: ProxyState,
+    skip_delay: bool,
 ) {
     // Notify connected client of the updated queue state immediately
     let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync {
@@ -23,14 +24,16 @@ pub async fn execute_queued_reaction(
     let delay_mode = state.get_reaction_delay_mode().await;
 
     tokio::spawn(async move {
-        let delay_ms = match delay_mode {
-            ReactionDelayMode::Normal => rand::thread_rng().gen_range(200..=300),
-            ReactionDelayMode::Fast => rand::thread_rng().gen_range(0..=200),
-            ReactionDelayMode::Instant => 0,
-        };
+        if !skip_delay {
+            let delay_ms = match delay_mode {
+                ReactionDelayMode::Normal => rand::thread_rng().gen_range(200..=300),
+                ReactionDelayMode::Fast => rand::thread_rng().gen_range(0..=200),
+                ReactionDelayMode::Instant => 0,
+            };
 
-        if delay_ms > 0 {
-            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            if delay_ms > 0 {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            }
         }
 
         let msg_url = format!("https://discord.com/api/v10/channels/{}/messages", channel_id);

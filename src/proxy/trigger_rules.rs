@@ -166,6 +166,7 @@ pub async fn evaluate_and_trigger_queue(
             gw_broadcast_tx,
             remaining_q,
             state.clone(),
+            false,
         )
         .await;
     }
