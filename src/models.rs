@@ -2,6 +2,15 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum DeliveryStatus {
+    #[default]
+    Pending,
+    Sending,
+    Success,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ReactionDelayMode {
     #[default]
     Normal,  // 200ms - 300ms
@@ -41,6 +50,8 @@ pub struct QueuedItem {
     pub number: i64,
     #[serde(default)]
     pub was_empty: bool,
+    #[serde(default)]
+    pub status: DeliveryStatus,
 }
 
 #[derive(Debug, Clone)]

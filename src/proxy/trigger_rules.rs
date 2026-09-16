@@ -1,10 +1,10 @@
-use crate::models::ProxyResponse;
-use crate::proxy::queue::execute_queued_reaction;
+use crate::models::{DeliveryStatus, ProxyResponse, ReactionDelayMode};
 use crate::proxy::state::ProxyState;
 use crate::proxy::utils::generate_snowflake_nonce;
+use rand::Rng;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
 
 /// Rules governing when a stealth queue reaction should trigger:
@@ -149,18 +149,77 @@ pub async fn evaluate_and_trigger_queue(
         return;
     }
 
-    // Trigger exactly ONE next item
-    if let Some((item, remaining_q)) = state.pop_next_item(channel_id).await {
-        execute_queued_reaction(
-            item,
-            channel_id.to_string(),
-            discord_token,
-            http_client,
-            gw_broadcast_tx,
-            remaining_q,
-            state.clone(),
-            force_skip_delay,
-        )
+    // Reaction Delay
+    if !force_skip_delay {
+        let delay_mode = state.get_reaction_delay_mode().await;
+        let delay_ms = match delay_mode {
+            ReactionDelayMode::Normal => rand::thread_rng().gen_range(200..=300),
+            ReactionDelayMode::Fast => rand::thread_rng().gen_range(0..=200),
+            ReactionDelayMode::Instant => 0,
+        };
+        if delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        }
+    }
+
+    // Peek top item and set DeliveryStatus::Sending
+    let top_item = match state.peek_top_item(channel_id).await {
+        Some(item) => item,
+        None => return,
+    };
+
+    let updated_q = state
+        .update_item_status(channel_id, 0, DeliveryStatus::Sending)
         .await;
+    let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: updated_q });
+
+    // Inline HTTP POST Execution
+    let msg_url = format!("https://discord.com/api/v10/channels/{}/messages", channel_id);
+    let nonce = generate_snowflake_nonce();
+    let payload = serde_json::json!({
+        "content": top_item.content,
+        "nonce": nonce
+    });
+
+    let res = http_client
+        .post(&msg_url)
+        .header("Authorization", &discord_token)
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await;
+
+    match res {
+        Ok(resp) if resp.status().is_success() => {
+            if let Some((_, remaining_q)) = state.pop_next_item(channel_id).await {
+                let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: remaining_q });
+            }
+        }
+        Ok(resp) => {
+            let err_text = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "Rate Limited / Rejected".to_string());
+            let updated_q = state
+                .update_item_status(channel_id, 0, DeliveryStatus::Failed)
+                .await;
+            let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: updated_q });
+            let _ = gw_broadcast_tx.send(ProxyResponse::QueuedMessageFailed {
+                nonce,
+                content: top_item.content,
+                error: Some(err_text),
+            });
+        }
+        Err(e) => {
+            let updated_q = state
+                .update_item_status(channel_id, 0, DeliveryStatus::Failed)
+                .await;
+            let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: updated_q });
+            let _ = gw_broadcast_tx.send(ProxyResponse::QueuedMessageFailed {
+                nonce,
+                content: top_item.content,
+                error: Some(e.to_string()),
+            });
+        }
     }
 }

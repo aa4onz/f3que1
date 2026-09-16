@@ -1,5 +1,5 @@
 // src/tui/components.rs
-use crate::models::{DiscordMessage, MessageStatus, QueuedItem, ReactionDelayMode};
+use crate::models::{DeliveryStatus, DiscordMessage, MessageStatus, QueuedItem, ReactionDelayMode};
 use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
@@ -42,8 +42,15 @@ pub fn render_queue_sidebar<'a>(queue_mode: bool, queue: &[QueuedItem], hw_delay
         items.push(ListItem::new(Span::styled("(Empty Queue)", Style::default().fg(Color::DarkGray))));
     } else {
         for (idx, q_item) in queue.iter().enumerate() {
-            let label = format!("[#{}] {}", idx + 1, q_item.content);
-            items.push(ListItem::new(Span::styled(label, Style::default().fg(Color::Yellow))));
+            let (status_color, status_suffix) = match q_item.status {
+                DeliveryStatus::Pending => (Color::Yellow, ""),
+                DeliveryStatus::Sending => (Color::DarkGray, " [...]"),
+                DeliveryStatus::Success => (Color::White, ""),
+                DeliveryStatus::Failed => (Color::Red, " [❌]"),
+            };
+
+            let label = format!("[#{}] {}{}", idx + 1, q_item.content, status_suffix);
+            items.push(ListItem::new(Span::styled(label, Style::default().fg(status_color))));
         }
     }
 

@@ -1,4 +1,4 @@
-use crate::models::{QueuedItem, ReactionDelayMode};
+use crate::models::{DeliveryStatus, QueuedItem, ReactionDelayMode};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
@@ -103,6 +103,27 @@ impl ProxyState {
         }
         q.push(item);
         q.clone()
+    }
+
+    pub async fn peek_top_item(&self, channel_id: &str) -> Option<QueuedItem> {
+        let map = self.active_queue.read().await;
+        map.get(channel_id).and_then(|q| q.first().cloned())
+    }
+
+    pub async fn update_item_status(
+        &self,
+        channel_id: &str,
+        index: usize,
+        status: DeliveryStatus,
+    ) -> Vec<QueuedItem> {
+        let mut map = self.active_queue.write().await;
+        if let Some(q) = map.get_mut(channel_id) {
+            if index < q.len() {
+                q[index].status = status;
+            }
+            return q.clone();
+        }
+        Vec::new()
     }
 
     pub async fn pop_next_item(&self, channel_id: &str) -> Option<(QueuedItem, Vec<QueuedItem>)> {
