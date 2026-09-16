@@ -26,6 +26,8 @@ pub async fn evaluate_and_trigger_queue(
         return;
     }
 
+    println!("[DEBUG] 🟢 Entry triggered for channel: {}", channel_id);
+
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -33,6 +35,7 @@ pub async fn evaluate_and_trigger_queue(
 
     // Rule 1: Queue Mode must be active
     if !state.is_queue_mode_enabled().await {
+        println!("[DEBUG] 🛑 Stopped at Rule 1: Queue Mode Disabled");
         return;
     }
 
@@ -43,29 +46,36 @@ pub async fn evaluate_and_trigger_queue(
             if let Some(top_item) = q.first() {
                 // Rule 2: Zero check -> if top item is 0, clear queue and exit
                 if top_item.number == 0 || top_item.content.trim() == "0" {
+                    println!("[DEBUG] 🛑 Stopped at Rule 2: Zero Check matched '0'. Clearing queue.");
                     drop(map);
                     let cleared = state.clear_queue(channel_id).await;
                     let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
                     return;
                 }
             } else {
+                println!("[DEBUG] 🛑 Stopped: Top item in queue is None.");
                 return;
             }
 
             // Rule 3: Emptiness check -> Queue must not be empty to process
             if q.is_empty() {
+                println!("[DEBUG] 🛑 Stopped at Rule 3: Queue is empty");
                 return;
             }
         } else {
+            println!("[DEBUG] 🛑 Stopped: No active queue found for this channel ID.");
             return;
         }
     }
 
     // Read the latest message strictly from the RAM chat cache
     let data = match state.get_cached_chat(channel_id).await {
-        Some(cached) => cached,
+        Some(cached) => {
+            println!("[DEBUG] Cache lookup hit. Content length parsed.");
+            cached
+        }
         None => {
-            // One-time fallback fetch if proxy app just started up and cache is unpopulated
+            println!("[DEBUG] ⚠️ Cache empty. Attempting one-time fallback HTTP GET fetch...");
             let url = format!(
                 "https://discord.com/api/v10/channels/{}/messages?limit=1",
                 channel_id
@@ -83,32 +93,50 @@ pub async fn evaluate_and_trigger_queue(
                         state.update_cached_chat(channel_id, fetched.clone()).await;
                         fetched
                     } else {
+                        println!("[DEBUG] 🛑 Fallback fetch returned an empty array.");
                         return;
                     }
                 } else {
+                    println!("[DEBUG] 🛑 Fallback fetch JSON parsing failed.");
                     return;
                 }
             } else {
+                println!("[DEBUG] 🛑 Fallback fetch network request failed.");
                 return;
             }
         }
     };
 
     let msg_id = data["id"].as_str().unwrap_or("");
+    println!(
+        "[DEBUG] Current message ID: {} | Text snippet: {:?}",
+        msg_id,
+        data["content"].as_str().unwrap_or("")
+    );
 
     // ATOMIC DEDUPLICATION: Ensures duplicate execution is avoided for processed messages
     if !msg_id.is_empty() {
         if !state.try_mark_message_processed(channel_id, msg_id).await {
+            println!(
+                "[DEBUG] 🛑 Stopped at Deduplication Check: Message {} was already handled.",
+                msg_id
+            );
             return;
         }
     }
 
     let author_id = data["author"]["id"].as_str().unwrap_or("");
     let author_uname = data["author"]["username"].as_str().unwrap_or("");
+    println!(
+        "[DEBUG] Message Creator ID: {} | Username: {}",
+        author_id, author_uname
+    );
 
     // Cannot trigger on own message
     if state.is_self_author(author_id, author_uname).await {
-        // Reset the sender lock because our message was sent and hit the gateway!
+        println!(
+            "[DEBUG] ✨ Stopped at Self-Author Check: This is OUR own bot message. Safely flipping lock back to FALSE."
+        );
         state.last_sender_was_me.store(false, Ordering::SeqCst);
         return;
     }
@@ -122,6 +150,9 @@ pub async fn evaluate_and_trigger_queue(
 
     // Bot message -> Empty queue and emit top queue item as failed
     if is_bot {
+        println!(
+            "[DEBUG] 🛑 Stopped at Bot Check: Target message belongs to another external bot. Clearing active queue."
+        );
         if let Some((top_item, _)) = state.pop_next_item(channel_id).await {
             let cleared = state.clear_queue(channel_id).await;
             let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
@@ -139,16 +170,23 @@ pub async fn evaluate_and_trigger_queue(
         return;
     }
 
-    // 🔒 CIRCUIT BREAKER: Strictly block execution if a thread is already running or sending
+    // 🔒 CIRCUIT BREAKER: Check lock status
+    println!(
+        "[DEBUG] 🔒 Checking Circuit Breaker gate. Current lock memory status: {}",
+        state.last_sender_was_me.load(Ordering::SeqCst)
+    );
     if state
         .last_sender_was_me
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        return; // Thread finishes here immediately!
+        println!(
+            "[DEBUG] ❌ CRITICAL: BLOCKED BY CIRCUIT BREAKER! last_sender_was_me is TRUE. This thread is dropping out!"
+        );
+        return;
     }
 
-    // Only update live event time if this thread safely acquired the lock
+    println!("[DEBUG] 🔓 PASSED CIRCUIT BREAKER. Memory lock successfully engaged to TRUE.");
     state.last_live_event_time.store(now_ms, Ordering::SeqCst);
 
     // Reaction Delay
@@ -168,18 +206,28 @@ pub async fn evaluate_and_trigger_queue(
     let top_item = match state.peek_top_item(channel_id).await {
         Some(item) => item,
         None => {
+            println!(
+                "[DEBUG] 🛑 Aborting API send: Queue became empty during delay phase. Reverting lock back to FALSE."
+            );
             state.last_sender_was_me.store(false, Ordering::SeqCst);
             return;
         }
     };
 
+    println!(
+        "[DEBUG] 📤 Dispatching HTTP POST request payload for number '{}'...",
+        top_item.content
+    );
     let updated_q = state
         .update_item_status(channel_id, 0, DeliveryStatus::Sending)
         .await;
     let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: updated_q });
 
     // Inline HTTP POST Execution
-    let msg_url = format!("https://discord.com/api/v10/channels/{}/messages", channel_id);
+    let msg_url = format!(
+        "https://discord.com/api/v10/channels/{}/messages",
+        channel_id
+    );
     let nonce = generate_snowflake_nonce();
     let payload = serde_json::json!({
         "content": top_item.content,
@@ -196,22 +244,21 @@ pub async fn evaluate_and_trigger_queue(
 
     match res {
         Ok(resp) if resp.status().is_success() => {
+            println!("[DEBUG] ✅ Discord API response 200 OK received successfully.");
             if let Some((_, remaining_q)) = state.pop_next_item(channel_id).await {
                 let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: remaining_q });
             }
-            // Note: Keep lock active until Discord confirmation hits the WebSocket gateway.
-            // This stops users from fast-spamming messages while your HTTP request is in transit!
         }
         Ok(resp) => {
             let err_text = resp
                 .text()
                 .await
                 .unwrap_or_else(|_| "Rate Limited / Rejected".to_string());
+            println!("[DEBUG] ❌ Discord API rejected message payload: {}", err_text);
             let updated_q = state
                 .update_item_status(channel_id, 0, DeliveryStatus::Failed)
                 .await;
 
-            // Release lock on failure so the system doesn't permanently freeze
             state.last_sender_was_me.store(false, Ordering::SeqCst);
 
             let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: updated_q });
@@ -222,11 +269,11 @@ pub async fn evaluate_and_trigger_queue(
             });
         }
         Err(e) => {
+            println!("[DEBUG] ❌ Network request connection error encountered: {}", e);
             let updated_q = state
                 .update_item_status(channel_id, 0, DeliveryStatus::Failed)
                 .await;
 
-            // Release lock on failure so the system doesn't permanently freeze
             state.last_sender_was_me.store(false, Ordering::SeqCst);
 
             let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: updated_q });
