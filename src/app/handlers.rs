@@ -23,6 +23,7 @@ impl crate::app::state::AppState {
                             self.token = tok.trim().to_string();
                             self.queue_mode = false;
                             self.queue.clear();
+                            self.input_text.clear();
                             self.update_preview_typed_text();
                         }
                     }
@@ -35,12 +36,11 @@ impl crate::app::state::AppState {
             }
             AppEvent::ToggleQueueMode => {
                 let is_proxy = self.token.starts_with("ws://") || self.token.starts_with("wss://");
+                self.input_text.clear();
                 if is_proxy {
                     self.queue_mode = !self.queue_mode;
-                    if !self.queue_mode {
-                        self.queue.clear();
-                        let _ = tx.send(AppEvent::ClearQueue).await;
-                    }
+                    self.queue.clear();
+                    let _ = tx.send(AppEvent::ClearQueue).await;
                     self.update_preview_typed_text();
                 } else {
                     self.queue_mode = false;
@@ -50,6 +50,7 @@ impl crate::app::state::AppState {
             }
             AppEvent::ClearQueue => {
                 self.queue.clear();
+                self.input_text.clear();
                 self.update_preview_typed_text();
             }
             AppEvent::TriggerTopQueue => {
@@ -111,6 +112,7 @@ impl crate::app::state::AppState {
                     let _ = std::fs::write(".channel_cache", &new_channel_id);
                     self.messages.clear();
                     self.queue.clear();
+                    self.input_text.clear();
                     self.update_preview_typed_text();
                     let _ = tx.send(AppEvent::ClearQueue).await;
                     let _ = tx.send(AppEvent::FetchChannelHistory(new_channel_id)).await;
@@ -161,6 +163,7 @@ impl crate::app::state::AppState {
             }
             AppEvent::GatewayClosed => {
                 self.queue.clear();
+                self.input_text.clear();
                 self.update_preview_typed_text();
                 let _ = tx.send(AppEvent::ClearQueue).await;
 
@@ -241,6 +244,7 @@ impl crate::app::state::AppState {
                 }
                 if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) && self.input_text.is_empty() {
                     self.queue.clear();
+                    self.input_text.clear();
                     self.failed_nonces.clear();
                     self.update_preview_typed_text();
                     let _ = tx.send(AppEvent::ClearQueue).await;
@@ -248,6 +252,7 @@ impl crate::app::state::AppState {
                 }
                 if k.code == KeyCode::Delete {
                     self.queue.clear();
+                    self.input_text.clear();
                     self.failed_nonces.clear();
                     self.update_preview_typed_text();
                     let _ = tx.send(AppEvent::ClearQueue).await;
@@ -278,10 +283,12 @@ impl crate::app::state::AppState {
                         let _ = tx.send(AppEvent::TriggerTopQueue).await;
                     }
                     KeyCode::F(2) => {
+                        self.input_text.clear();
                         let _ = tx.send(AppEvent::ToggleQueueMode).await;
                     }
                     KeyCode::F(3) => {
                         self.queue.clear();
+                        self.input_text.clear();
                         self.failed_nonces.clear();
                         self.update_preview_typed_text();
                         let _ = tx.send(AppEvent::ClearQueue).await;
