@@ -11,12 +11,10 @@ use tokio::sync::broadcast;
 /// 1. Queue Mode must be active.
 /// 2. Zero check: If top item number is 0 (or content "0"), clear entire queue and do not send.
 /// 3. Emptiness check: Requires queue to be non-empty to process.
-/// 4. Sender & Duplicate check:
-///    - Supports both instant WebSocket event payload AND REST API fallback.
-///    - Atomically marks message ID as processed to strictly guarantee 1 trigger per Discord message.
-///    - Bot check: Explicitly checks bot IDs (510016054391734273, 639599059036012605) alongside standard bot flags.
+/// 4. RAM Cache Lookup: Evaluates strictly against `state.get_cached_chat(...)`, falling back to HTTP GET once if empty.
+/// 5. Sender & Duplicate check: Atomically marks message ID as processed. Bot check empties queue and emits failure.
 pub async fn evaluate_and_trigger_queue(
-    message_data: Option<&serde_json::Value>,
+    _message_data: Option<&serde_json::Value>,
     channel_id: &str,
     state: &ProxyState,
     discord_token: String,
@@ -32,16 +30,6 @@ pub async fn evaluate_and_trigger_queue(
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
-
-    if message_data.is_some() {
-        state.last_live_event_time.store(now_ms, Ordering::SeqCst);
-        state.last_sender_was_me.store(false, Ordering::SeqCst);
-    } else {
-        let last_event = state.last_live_event_time.load(Ordering::SeqCst);
-        if now_ms.saturating_sub(last_event) < 2000 {
-            return;
-        }
-    }
 
     // Rule 1: Queue Mode must be active
     if !state.is_queue_mode_enabled().await {
@@ -73,11 +61,11 @@ pub async fn evaluate_and_trigger_queue(
         }
     }
 
-    // Fetch last message from Discord API if no direct gateway event payload was provided
-    let fetched_last_msg;
-    let data = match message_data {
-        Some(d) => d,
+    // Read the latest message strictly from the RAM chat cache
+    let data = match state.get_cached_chat(channel_id).await {
+        Some(cached) => cached,
         None => {
+            // One-time fallback fetch if proxy app just started up and cache is unpopulated
             let url = format!(
                 "https://discord.com/api/v10/channels/{}/messages?limit=1",
                 channel_id
@@ -91,8 +79,9 @@ pub async fn evaluate_and_trigger_queue(
             if let Ok(resp) = res {
                 if let Ok(arr) = resp.json::<serde_json::Value>().await {
                     if let Some(first_msg) = arr.get(0) {
-                        fetched_last_msg = first_msg.clone();
-                        &fetched_last_msg
+                        let fetched = first_msg.clone();
+                        state.update_cached_chat(channel_id, fetched.clone()).await;
+                        fetched
                     } else {
                         return;
                     }
@@ -105,9 +94,12 @@ pub async fn evaluate_and_trigger_queue(
         }
     };
 
+    state.last_live_event_time.store(now_ms, Ordering::SeqCst);
+    state.last_sender_was_me.store(false, Ordering::SeqCst);
+
     let msg_id = data["id"].as_str().unwrap_or("");
 
-    // ATOMIC DEDUPLICATION: Ensures REST fallback and WebSocket payload never conflict or double-trigger
+    // ATOMIC DEDUPLICATION: Ensures duplicate execution is avoided for processed messages
     if !msg_id.is_empty() {
         if !state.try_mark_message_processed(channel_id, msg_id).await {
             return;
@@ -129,7 +121,7 @@ pub async fn evaluate_and_trigger_queue(
         return;
     }
 
-    // Bot message -> Empty queue and emit top queue item as failed (red cross indicator in chatbox)
+    // Bot message -> Empty queue and emit top queue item as failed
     if is_bot {
         if let Some((top_item, _)) = state.pop_next_item(channel_id).await {
             let cleared = state.clear_queue(channel_id).await;

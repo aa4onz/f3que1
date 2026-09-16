@@ -15,6 +15,7 @@ pub struct ProxyState {
     pub last_processed_message_id: Arc<RwLock<HashMap<String, String>>>,
     pub last_sender_was_me: Arc<AtomicBool>,
     pub last_live_event_time: Arc<AtomicU64>,
+    pub latest_channels_chat: Arc<RwLock<HashMap<String, serde_json::Value>>>,
 }
 
 impl Default for ProxyState {
@@ -35,7 +36,20 @@ impl ProxyState {
             last_processed_message_id: Arc::new(RwLock::new(HashMap::new())),
             last_sender_was_me: Arc::new(AtomicBool::new(false)),
             last_live_event_time: Arc::new(AtomicU64::new(0)),
+            latest_channels_chat: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    pub async fn update_cached_chat(&self, channel_id: &str, message: serde_json::Value) {
+        if !channel_id.is_empty() {
+            let mut map = self.latest_channels_chat.write().await;
+            map.insert(channel_id.to_string(), message);
+        }
+    }
+
+    pub async fn get_cached_chat(&self, channel_id: &str) -> Option<serde_json::Value> {
+        let map = self.latest_channels_chat.read().await;
+        map.get(channel_id).cloned()
     }
 
     pub async fn is_queue_mode_enabled(&self) -> bool {
