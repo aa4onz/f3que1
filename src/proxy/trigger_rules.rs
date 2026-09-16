@@ -68,43 +68,46 @@ pub async fn evaluate_and_trigger_queue(
         }
     }
 
-    // Read the latest message strictly from the RAM chat cache
-    let data = match state.get_cached_chat(channel_id).await {
-        Some(cached) => {
-            println!("[DEBUG] Cache lookup hit. Content length parsed.");
-            cached
-        }
-        None => {
-            println!("[DEBUG] ⚠️ Cache empty. Attempting one-time fallback HTTP GET fetch...");
-            let url = format!(
-                "https://discord.com/api/v10/channels/{}/messages?limit=1",
-                channel_id
-            );
-            let res = http_client
-                .get(&url)
-                .header("Authorization", &discord_token)
-                .send()
-                .await;
+    // 🟩 FIX: Prioritize live incoming message payload data directly to bypass overwritten cache traps
+    let data = match _message_data {
+        Some(live_data) => live_data.clone(),
+        None => match state.get_cached_chat(channel_id).await {
+            Some(cached) => {
+                println!("[DEBUG] Cache lookup hit. Content length parsed.");
+                cached
+            }
+            None => {
+                println!("[DEBUG] ⚠️ Cache empty. Attempting one-time fallback HTTP GET fetch...");
+                let url = format!(
+                    "https://discord.com/api/v10/channels/{}/messages?limit=1",
+                    channel_id
+                );
+                let res = http_client
+                    .get(&url)
+                    .header("Authorization", &discord_token)
+                    .send()
+                    .await;
 
-            if let Ok(resp) = res {
-                if let Ok(arr) = resp.json::<serde_json::Value>().await {
-                    if let Some(first_msg) = arr.get(0) {
-                        let fetched = first_msg.clone();
-                        state.update_cached_chat(channel_id, fetched.clone()).await;
-                        fetched
+                if let Ok(resp) = res {
+                    if let Ok(arr) = resp.json::<serde_json::Value>().await {
+                        if let Some(first_msg) = arr.get(0) {
+                            let fetched = first_msg.clone();
+                            state.update_cached_chat(channel_id, fetched.clone()).await;
+                            fetched
+                        } else {
+                            println!("[DEBUG] 🛑 Fallback fetch returned an empty array.");
+                            return;
+                        }
                     } else {
-                        println!("[DEBUG] 🛑 Fallback fetch returned an empty array.");
+                        println!("[DEBUG] 🛑 Fallback fetch JSON parsing failed.");
                         return;
                     }
                 } else {
-                    println!("[DEBUG] 🛑 Fallback fetch JSON parsing failed.");
+                    println!("[DEBUG] 🛑 Fallback fetch network request failed.");
                     return;
                 }
-            } else {
-                println!("[DEBUG] 🛑 Fallback fetch network request failed.");
-                return;
             }
-        }
+        },
     };
 
     let msg_id = data["id"].as_str().unwrap_or("");
@@ -139,6 +142,17 @@ pub async fn evaluate_and_trigger_queue(
         );
         state.last_sender_was_me.store(false, Ordering::SeqCst);
         return;
+    }
+
+    // 🟩 FIX: SELF-HEALING OVERRIDE
+    // If the system lock is stuck at TRUE for over 1.5 seconds without a gateway clean-up event, 
+    // forcefully break the lock so regular channel updates continue normal operation.
+    if state.last_sender_was_me.load(Ordering::SeqCst) {
+        let last_event = state.last_live_event_time.load(Ordering::SeqCst);
+        if now_ms.saturating_sub(last_event) > 1500 {
+            println!("[DEBUG] 🛡️ Self-Healing: Resetting stuck lock back to FALSE.");
+            state.last_sender_was_me.store(false, Ordering::SeqCst);
+        }
     }
 
     // Enhanced Bot Detection with explicit Bot IDs for fast & reliable lookup
