@@ -68,6 +68,52 @@ pub async fn evaluate_and_trigger_queue(
         }
     }
 
+    // 🟩 KEEPING LOGS & ADDING SHORT-CIRCUIT FOR DASHBOARD ENQUEUES:
+    // If this is a manual dashboard action (message_data is None), skip history checks entirely.
+    if message_data.is_none() {
+        println!("[DEBUG] ⚡ Dashboard Event Detected (message_data is None). Bypassing Discord history checks entirely!");
+        
+        let top_item = match state.peek_top_item(channel_id).await {
+            Some(item) => item,
+            None => {
+                println!("[DEBUG] 🛑 Dashboard Send Aborted: Queue empty.");
+                return;
+            }
+        };
+
+        println!("[DEBUG] 📤 Dispatching Manual Dashboard POST for number '{}'...", top_item.content);
+        let updated_q = state.update_item_status(channel_id, 0, DeliveryStatus::Sending).await;
+        let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: updated_q });
+
+        let msg_url = format!("https://discord.com/api/v10/channels/{}/messages", channel_id);
+        let nonce = generate_snowflake_nonce();
+        let payload = serde_json::json!({ "content": top_item.content, "nonce": nonce });
+
+        let res = http_client.post(&msg_url)
+            .header("Authorization", &discord_token)
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await;
+
+        if let Ok(resp) = res {
+            if resp.status().is_success() {
+                println!("[DEBUG] ✅ Dashboard Send Success 200 OK.");
+                if let Some((_, remaining_q)) = state.pop_next_item(channel_id).await {
+                    let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: remaining_q });
+                }
+                state.last_sender_was_me.store(false, Ordering::SeqCst);
+            } else {
+                println!("[DEBUG] ❌ Dashboard Send Rejected by Discord API.");
+                state.last_sender_was_me.store(false, Ordering::SeqCst);
+            }
+        } else {
+            println!("[DEBUG] ❌ Dashboard Send Network Failure.");
+            state.last_sender_was_me.store(false, Ordering::SeqCst);
+        }
+        return; // Exit function immediately to prevent duplicate runs
+    }
+
     // Prioritize live incoming message payload data directly to bypass overwritten cache traps
     let data = match message_data {
         Some(live_data) => live_data.clone(),
@@ -124,8 +170,6 @@ pub async fn evaluate_and_trigger_queue(
                 "[DEBUG] 🛑 Stopped at Deduplication Check: Message {} was already handled.",
                 msg_id
             );
-            // 🟩 SELF-HEALING CACHE CLEANUP: If we get stuck on an old manual payload,
-            // clear the cache data so it cannot freeze subsequent execution triggers.
             if message_data.is_none() {
                 let mut map = state.latest_channels_chat.write().await;
                 map.remove(channel_id);
