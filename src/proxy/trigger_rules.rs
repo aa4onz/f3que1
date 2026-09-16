@@ -14,7 +14,7 @@ use tokio::sync::broadcast;
 /// 4. RAM Cache Lookup: Evaluates strictly against `state.get_cached_chat(...)`, falling back to HTTP GET once if empty.
 /// 5. Sender & Duplicate check: Atomically marks message ID as processed. Bot check empties queue and emits failure.
 pub async fn evaluate_and_trigger_queue(
-    message_data: Option<&serde_json::Value>,
+    _message_data: Option<&serde_json::Value>,
     channel_id: &str,
     state: &ProxyState,
     discord_token: String,
@@ -68,92 +68,43 @@ pub async fn evaluate_and_trigger_queue(
         }
     }
 
-    // 🟩 KEEPING LOGS & ADDING SHORT-CIRCUIT FOR DASHBOARD ENQUEUES:
-    // If this is a manual dashboard action (message_data is None), skip history checks entirely.
-    if message_data.is_none() {
-        println!("[DEBUG] ⚡ Dashboard Event Detected (message_data is None). Bypassing Discord history checks entirely!");
-        
-        let top_item = match state.peek_top_item(channel_id).await {
-            Some(item) => item,
-            None => {
-                println!("[DEBUG] 🛑 Dashboard Send Aborted: Queue empty.");
-                return;
-            }
-        };
-
-        println!("[DEBUG] 📤 Dispatching Manual Dashboard POST for number '{}'...", top_item.content);
-        let updated_q = state.update_item_status(channel_id, 0, DeliveryStatus::Sending).await;
-        let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: updated_q });
-
-        let msg_url = format!("https://discord.com/api/v10/channels/{}/messages", channel_id);
-        let nonce = generate_snowflake_nonce();
-        let payload = serde_json::json!({ "content": top_item.content, "nonce": nonce });
-
-        let res = http_client.post(&msg_url)
-            .header("Authorization", &discord_token)
-            .header("Content-Type", "application/json")
-            .json(&payload)
-            .send()
-            .await;
-
-        if let Ok(resp) = res {
-            if resp.status().is_success() {
-                println!("[DEBUG] ✅ Dashboard Send Success 200 OK.");
-                if let Some((_, remaining_q)) = state.pop_next_item(channel_id).await {
-                    let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: remaining_q });
-                }
-                state.last_sender_was_me.store(false, Ordering::SeqCst);
-            } else {
-                println!("[DEBUG] ❌ Dashboard Send Rejected by Discord API.");
-                state.last_sender_was_me.store(false, Ordering::SeqCst);
-            }
-        } else {
-            println!("[DEBUG] ❌ Dashboard Send Network Failure.");
-            state.last_sender_was_me.store(false, Ordering::SeqCst);
+    // Read the latest message strictly from the RAM chat cache
+    let data = match state.get_cached_chat(channel_id).await {
+        Some(cached) => {
+            println!("[DEBUG] Cache lookup hit. Content length parsed.");
+            cached
         }
-        return; // Exit function immediately to prevent duplicate runs
-    }
+        None => {
+            println!("[DEBUG] ⚠️ Cache empty. Attempting one-time fallback HTTP GET fetch...");
+            let url = format!(
+                "https://discord.com/api/v10/channels/{}/messages?limit=1",
+                channel_id
+            );
+            let res = http_client
+                .get(&url)
+                .header("Authorization", &discord_token)
+                .send()
+                .await;
 
-    // Prioritize live incoming message payload data directly to bypass overwritten cache traps
-    let data = match message_data {
-        Some(live_data) => live_data.clone(),
-        None => match state.get_cached_chat(channel_id).await {
-            Some(cached) => {
-                println!("[DEBUG] Cache lookup hit. Content length parsed.");
-                cached
-            }
-            None => {
-                println!("[DEBUG] ⚠️ Cache empty. Attempting one-time fallback HTTP GET fetch...");
-                let url = format!(
-                    "https://discord.com/api/v10/channels/{}/messages?limit=1",
-                    channel_id
-                );
-                let res = http_client
-                    .get(&url)
-                    .header("Authorization", &discord_token)
-                    .send()
-                    .await;
-
-                if let Ok(resp) = res {
-                    if let Ok(arr) = resp.json::<serde_json::Value>().await {
-                        if let Some(first_msg) = arr.get(0) {
-                            let fetched = first_msg.clone();
-                            state.update_cached_chat(channel_id, fetched.clone()).await;
-                            fetched
-                        } else {
-                            println!("[DEBUG] 🛑 Fallback fetch returned an empty array.");
-                            return;
-                        }
+            if let Ok(resp) = res {
+                if let Ok(arr) = resp.json::<serde_json::Value>().await {
+                    if let Some(first_msg) = arr.get(0) {
+                        let fetched = first_msg.clone();
+                        state.update_cached_chat(channel_id, fetched.clone()).await;
+                        fetched
                     } else {
-                        println!("[DEBUG] 🛑 Fallback fetch JSON parsing failed.");
+                        println!("[DEBUG] 🛑 Fallback fetch returned an empty array.");
                         return;
                     }
                 } else {
-                    println!("[DEBUG] 🛑 Fallback fetch network request failed.");
+                    println!("[DEBUG] 🛑 Fallback fetch JSON parsing failed.");
                     return;
                 }
+            } else {
+                println!("[DEBUG] 🛑 Fallback fetch network request failed.");
+                return;
             }
-        },
+        }
     };
 
     let msg_id = data["id"].as_str().unwrap_or("");
@@ -170,11 +121,6 @@ pub async fn evaluate_and_trigger_queue(
                 "[DEBUG] 🛑 Stopped at Deduplication Check: Message {} was already handled.",
                 msg_id
             );
-            if message_data.is_none() {
-                let mut map = state.latest_channels_chat.write().await;
-                map.remove(channel_id);
-                println!("[DEBUG] 🧹 Cleaned stale fallback cache entry for channel to unfreeze state machine.");
-            }
             return;
         }
     }
@@ -193,15 +139,6 @@ pub async fn evaluate_and_trigger_queue(
         );
         state.last_sender_was_me.store(false, Ordering::SeqCst);
         return;
-    }
-
-    // SELF-HEALING OVERRIDE
-    if state.last_sender_was_me.load(Ordering::SeqCst) {
-        let last_event = state.last_live_event_time.load(Ordering::SeqCst);
-        if now_ms.saturating_sub(last_event) > 1500 {
-            println!("[DEBUG] 🛡️ Self-Healing: Resetting stuck lock back to FALSE.");
-            state.last_sender_was_me.store(false, Ordering::SeqCst);
-        }
     }
 
     // Enhanced Bot Detection with explicit Bot IDs for fast & reliable lookup
@@ -231,6 +168,17 @@ pub async fn evaluate_and_trigger_queue(
             let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
         }
         return;
+    }
+
+    // 🟩 SELF-HEALING OVERRIDE TIMEOUT: Place directly above the circuit breaker!
+    // If the system lock gets stuck at TRUE for over 1.5 seconds without a gateway clean-up event, 
+    // forcefully break it so regular channel triggers can recover.
+    if state.last_sender_was_me.load(Ordering::SeqCst) {
+        let last_event = state.last_live_event_time.load(Ordering::SeqCst);
+        if now_ms.saturating_sub(last_event) > 1500 {
+            println!("[DEBUG] 🛡️ Self-Healing: Resetting stuck lock back to FALSE.");
+            state.last_sender_was_me.store(false, Ordering::SeqCst);
+        }
     }
 
     // 🔒 CIRCUIT BREAKER: Check lock status
