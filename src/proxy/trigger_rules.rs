@@ -14,7 +14,7 @@ use tokio::sync::broadcast;
 /// 4. RAM Cache Lookup: Evaluates strictly against `state.get_cached_chat(...)`, falling back to HTTP GET once if empty.
 /// 5. Sender & Duplicate check: Atomically marks message ID as processed. Bot check empties queue and emits failure.
 pub async fn evaluate_and_trigger_queue(
-    _message_data: Option<&serde_json::Value>,
+    message_data: Option<&serde_json::Value>,
     channel_id: &str,
     state: &ProxyState,
     discord_token: String,
@@ -68,8 +68,8 @@ pub async fn evaluate_and_trigger_queue(
         }
     }
 
-    // 🟩 FIX: Prioritize live incoming message payload data directly to bypass overwritten cache traps
-    let data = match _message_data {
+    // Prioritize live incoming message payload data directly to bypass overwritten cache traps
+    let data = match message_data {
         Some(live_data) => live_data.clone(),
         None => match state.get_cached_chat(channel_id).await {
             Some(cached) => {
@@ -124,6 +124,13 @@ pub async fn evaluate_and_trigger_queue(
                 "[DEBUG] 🛑 Stopped at Deduplication Check: Message {} was already handled.",
                 msg_id
             );
+            // 🟩 SELF-HEALING CACHE CLEANUP: If we get stuck on an old manual payload,
+            // clear the cache data so it cannot freeze subsequent execution triggers.
+            if message_data.is_none() {
+                let mut map = state.latest_channels_chat.write().await;
+                map.remove(channel_id);
+                println!("[DEBUG] 🧹 Cleaned stale fallback cache entry for channel to unfreeze state machine.");
+            }
             return;
         }
     }
@@ -144,9 +151,7 @@ pub async fn evaluate_and_trigger_queue(
         return;
     }
 
-    // 🟩 FIX: SELF-HEALING OVERRIDE
-    // If the system lock is stuck at TRUE for over 1.5 seconds without a gateway clean-up event, 
-    // forcefully break the lock so regular channel updates continue normal operation.
+    // SELF-HEALING OVERRIDE
     if state.last_sender_was_me.load(Ordering::SeqCst) {
         let last_event = state.last_live_event_time.load(Ordering::SeqCst);
         if now_ms.saturating_sub(last_event) > 1500 {
