@@ -1,5 +1,5 @@
 use crate::app::state::AppState;
-use crate::models::{AppEvent, DiscordMessage, MessageStatus, QueuedItem};
+use crate::models::{AppEvent, DeliveryStatus, DiscordMessage, MessageStatus, QueuedItem};
 use chrono::Local;
 use std::time::Instant;
 use tokio::sync::mpsc::Sender;
@@ -40,6 +40,7 @@ pub async fn enqueue_parsed_item(
         content: text,
         number,
         was_empty,
+        status: DeliveryStatus::Pending,
     };
 
     app.queue.push(queued_item.clone());
