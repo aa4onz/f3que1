@@ -94,9 +94,6 @@ pub async fn evaluate_and_trigger_queue(
         }
     };
 
-    state.last_live_event_time.store(now_ms, Ordering::SeqCst);
-    state.last_sender_was_me.store(false, Ordering::SeqCst);
-
     let msg_id = data["id"].as_str().unwrap_or("");
 
     // ATOMIC DEDUPLICATION: Ensures duplicate execution is avoided for processed messages
@@ -109,17 +106,19 @@ pub async fn evaluate_and_trigger_queue(
     let author_id = data["author"]["id"].as_str().unwrap_or("");
     let author_uname = data["author"]["username"].as_str().unwrap_or("");
 
+    // Cannot trigger on own message
+    if state.is_self_author(author_id, author_uname).await {
+        // Reset the sender lock because our message was sent and hit the gateway!
+        state.last_sender_was_me.store(false, Ordering::SeqCst);
+        return;
+    }
+
     // Enhanced Bot Detection with explicit Bot IDs for fast & reliable lookup
     let is_known_bot_id = author_id == "510016054391734273" || author_id == "639599059036012605";
     let is_bot = is_known_bot_id
         || data["author"]["bot"].as_bool().unwrap_or(false)
         || data["webhook_id"].is_string()
         || data["type"].as_u64().map_or(false, |t| t != 0 && t != 19);
-
-    // Cannot trigger on own message
-    if state.is_self_author(author_id, author_uname).await {
-        return;
-    }
 
     // Bot message -> Empty queue and emit top queue item as failed
     if is_bot {
@@ -140,14 +139,17 @@ pub async fn evaluate_and_trigger_queue(
         return;
     }
 
-    // Circuit breaker: ensure strictly one thread triggers back-to-back
+    // 🔒 CIRCUIT BREAKER: Strictly block execution if a thread is already running or sending
     if state
         .last_sender_was_me
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        return;
+        return; // Thread finishes here immediately!
     }
+
+    // Only update live event time if this thread safely acquired the lock
+    state.last_live_event_time.store(now_ms, Ordering::SeqCst);
 
     // Reaction Delay
     if !force_skip_delay {
@@ -165,7 +167,10 @@ pub async fn evaluate_and_trigger_queue(
     // Peek top item and set DeliveryStatus::Sending
     let top_item = match state.peek_top_item(channel_id).await {
         Some(item) => item,
-        None => return,
+        None => {
+            state.last_sender_was_me.store(false, Ordering::SeqCst);
+            return;
+        }
     };
 
     let updated_q = state
@@ -194,6 +199,8 @@ pub async fn evaluate_and_trigger_queue(
             if let Some((_, remaining_q)) = state.pop_next_item(channel_id).await {
                 let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: remaining_q });
             }
+            // Note: Keep lock active until Discord confirmation hits the WebSocket gateway.
+            // This stops users from fast-spamming messages while your HTTP request is in transit!
         }
         Ok(resp) => {
             let err_text = resp
@@ -203,6 +210,10 @@ pub async fn evaluate_and_trigger_queue(
             let updated_q = state
                 .update_item_status(channel_id, 0, DeliveryStatus::Failed)
                 .await;
+
+            // Release lock on failure so the system doesn't permanently freeze
+            state.last_sender_was_me.store(false, Ordering::SeqCst);
+
             let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: updated_q });
             let _ = gw_broadcast_tx.send(ProxyResponse::QueuedMessageFailed {
                 nonce,
@@ -214,6 +225,10 @@ pub async fn evaluate_and_trigger_queue(
             let updated_q = state
                 .update_item_status(channel_id, 0, DeliveryStatus::Failed)
                 .await;
+
+            // Release lock on failure so the system doesn't permanently freeze
+            state.last_sender_was_me.store(false, Ordering::SeqCst);
+
             let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: updated_q });
             let _ = gw_broadcast_tx.send(ProxyResponse::QueuedMessageFailed {
                 nonce,
