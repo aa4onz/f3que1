@@ -113,8 +113,10 @@ pub async fn run_discord_gateway(
                                         if event_type == "MESSAGE_CREATE" {
                                             let cid = data["channel_id"].as_str().unwrap_or("");
                                             state.update_cached_chat(cid, data.clone()).await;
+                                            
+                                            // 🟩 FIX: Pass Some(&data) instead of None to prevent cache bugs!
                                             evaluate_and_trigger_queue(
-                                                None,
+                                                Some(&data),
                                                 cid,
                                                 &state,
                                                 discord_token.clone(),
